@@ -216,7 +216,7 @@ export default function GamePage() {
           <h2 className="text-lg font-bold mb-4 text-center leading-tight flex-shrink-0">{current.question}</h2>
 
           {/* Options */}
-          <div className="grid gap-3 flex-1">
+          <div className="grid gap-2 mt-2">
             {current.options.map((opt, i) => (
               <button
                 key={i}
