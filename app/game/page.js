@@ -139,19 +139,19 @@ export default function GamePage() {
   // Round Transition Screen
   if (showRoundTransition) {
     return (
-      <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white flex items-center justify-center p-4">
+      <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white flex items-center justify-center p-2">
         <div className="text-center animate-pulse">
-          <div className="text-3xl mb-3 animate-bounce">🎯</div>
-          <h1 className="text-xl font-bold mb-2 animate-fade-in">Round {currentRound - 1} Complete!</h1>
-          <div className="text-base mb-2">
+          <div className="text-2xl mb-2 animate-bounce">🎯</div>
+          <h1 className="text-lg font-bold mb-1 animate-fade-in">Round {currentRound - 1} Complete!</h1>
+          <div className="text-sm mb-1">
             Correct: {correctInRound}/{QUESTIONS_PER_ROUND}
           </div>
           {correctInRound === QUESTIONS_PER_ROUND && (
-            <div className="text-lg font-bold text-yellow-300 animate-bounce">
+            <div className="text-base font-bold text-yellow-300 animate-bounce">
               Perfect! +20 Bonus! ⭐
             </div>
           )}
-          <div className="mt-3 text-sm">
+          <div className="mt-2 text-xs">
             Starting Round {currentRound}...
           </div>
         </div>
@@ -160,35 +160,35 @@ export default function GamePage() {
   }
 
   return (
-    <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white p-2 flex flex-col overflow-hidden">
+    <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white p-1 flex flex-col overflow-hidden">
 
       {/* Streak Bonus Popup */}
       {showStreakBonus && (
-        <div className="fixed top-12 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black px-3 py-1 rounded-full font-bold text-xs animate-bounce z-50 shadow-lg">
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black px-2 py-1 rounded-full font-bold text-xs animate-bounce z-50 shadow-lg">
           🔥 {showStreakBonus}
         </div>
       )}
 
-      {/* Score and Stats Header - Compact */}
-      <div className="flex justify-between items-center mb-2">
-        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-2 py-1">
-          <div className="text-xs opacity-80">Score</div>
-          <div className="text-sm font-bold">{score}</div>
+      {/* Score and Stats Header - Ultra Compact */}
+      <div className="flex justify-between items-center mb-1 px-1">
+        <div className="bg-black/20 backdrop-blur-sm rounded-md px-2 py-1">
+          <div className="text-xs opacity-80 leading-none">Score</div>
+          <div className="text-sm font-bold leading-none">{score}</div>
         </div>
-        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-2 py-1">
-          <div className="text-xs opacity-80">Streak</div>
-          <div className="text-sm font-bold">{streak}🔥</div>
+        <div className="bg-black/20 backdrop-blur-sm rounded-md px-2 py-1">
+          <div className="text-xs opacity-80 leading-none">Streak</div>
+          <div className="text-sm font-bold leading-none">{streak}🔥</div>
         </div>
       </div>
 
       {current.question ? (
-        <div className={`bg-white/95 backdrop-blur-sm text-black p-3 rounded-xl shadow-2xl flex-1 flex flex-col transform transition-all duration-200 ${
+        <div className={`bg-white/95 backdrop-blur-sm text-black p-2 rounded-lg shadow-2xl flex-1 flex flex-col transform transition-all duration-200 min-h-0 ${
           questionAnimation === "enter" ? "animate-slide-up" : 
           questionAnimation === "exit" ? "animate-slide-down opacity-0" : ""
         }`}>
 
-          {/* Progress Bar - Compact */}
-          <div className="mb-2">
+          {/* Progress Bar - Ultra Compact */}
+          <div className="mb-1">
             <div className="flex justify-between text-xs mb-1">
               <span>Round {currentRound}/{TOTAL_ROUNDS}</span>
               <span>Q{questionIndex + 1}/{QUESTIONS_PER_ROUND}</span>
@@ -201,9 +201,9 @@ export default function GamePage() {
             </div>
           </div>
 
-          {/* Timer - Smaller */}
-          <div className="text-center mb-2">
-            <div className={`inline-block w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${
+          {/* Timer - Inline with progress */}
+          <div className="text-center mb-1">
+            <div className={`inline-block w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${
               timeLeft <= 3 ? 'border-red-500 text-red-500 animate-pulse' : 
               timeLeft <= 5 ? 'border-yellow-500 text-yellow-500' : 
               'border-green-500 text-green-500'
@@ -212,16 +212,16 @@ export default function GamePage() {
             </div>
           </div>
 
-          {/* Question - Shorter */}
-          <h2 className="text-base font-bold mb-3 text-center leading-tight flex-shrink-0">{current.question}</h2>
+          {/* Question - Minimal margin */}
+          <h2 className="text-sm font-bold mb-2 text-center leading-tight flex-shrink-0">{current.question}</h2>
 
-          {/* Options - Compact spacing */}
-          <div className="grid gap-2 flex-1">
+          {/* Options - Minimal spacing and height */}
+          <div className="grid gap-1 flex-1 min-h-0">
             {current.options.map((opt, i) => (
               <button
                 key={i}
                 onClick={() => handleAnswer(opt)}
-                className={`p-2 rounded-lg text-xs font-medium transition-all duration-75 transform hover:scale-102 active:scale-98 ${
+                className={`p-1.5 rounded-md text-xs font-medium transition-all duration-75 transform hover:scale-102 active:scale-98 min-h-0 ${
                   selectedOption === opt
                     ? opt === correctAnswerText
                       ? "bg-green-500 text-white animate-pulse shadow-lg"
@@ -234,8 +234,8 @@ export default function GamePage() {
                 }`}
                 disabled={selectedOption !== null}
               >
-                <div className="flex items-center">
-                  <span className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center mr-2 text-xs font-bold flex-shrink-0">
+                <div className="flex items-center min-h-0">
+                  <span className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center mr-1.5 text-xs font-bold flex-shrink-0">
                     {String.fromCharCode(65 + i)}
                   </span>
                   <span className="text-left leading-tight text-xs">{opt}</span>
