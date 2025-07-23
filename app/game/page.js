@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import allQuestions from "@/lib/questions";
 
 const QUESTIONS_PER_ROUND = 5;
@@ -15,6 +15,7 @@ export default function GamePage() {
   const [streak, setStreak] = useState(0);
   const [timeLeft, setTimeLeft] = useState(10);
   const [totalCorrect, setTotalCorrect] = useState(0);
+
   const [roundQuestions, setRoundQuestions] = useState([]);
   const [correctInRound, setCorrectInRound] = useState(0);
   const [showRoundTransition, setShowRoundTransition] = useState(false);
@@ -22,22 +23,29 @@ export default function GamePage() {
   const [showStreakBonus, setShowStreakBonus] = useState(null);
 
   useEffect(() => {
-    const storedUsedQuestions = localStorage.getItem("cast-it-fast-used-questions");
+    // Load used questions from localStorage
+    const storedUsedQuestions = localStorage.getItem('cast-it-fast-used-questions');
     const usedQuestions = storedUsedQuestions ? JSON.parse(storedUsedQuestions) : [];
-    const availableQuestions = allQuestions.filter((q) => !usedQuestions.includes(q.question));
+
+    // Get questions that haven't been used yet
+    const availableQuestions = allQuestions.filter(q => !usedQuestions.includes(q.question));
 
     let nextSet;
+    // If we don't have enough available questions, show a message or loop back
     if (availableQuestions.length < QUESTIONS_PER_ROUND) {
+      // You've used all questions! For demo, we'll reset, but in production you might want to add more questions
       const shuffled = [...allQuestions].sort(() => 0.5 - Math.random());
       nextSet = shuffled.slice(0, QUESTIONS_PER_ROUND);
     } else {
+      // Randomly select from available questions
       const shuffled = [...availableQuestions].sort(() => 0.5 - Math.random());
       nextSet = shuffled.slice(0, QUESTIONS_PER_ROUND);
     }
 
-    const updatedUsedQuestions = [...usedQuestions, ...nextSet.map((q) => q.question)];
-    localStorage.setItem("cast-it-fast-used-questions", JSON.stringify(updatedUsedQuestions));
-
+    // Save the newly selected questions as used
+    const updatedUsedQuestions = [...usedQuestions, ...nextSet.map(q => q.question)];
+    localStorage.setItem('cast-it-fast-used-questions', JSON.stringify(updatedUsedQuestions));
+    
     setRoundQuestions(nextSet);
     setQuestionIndex(0);
     setCorrectInRound(0);
@@ -66,6 +74,7 @@ export default function GamePage() {
       const nextStreak = streak + 1;
       setStreak(nextStreak);
 
+      // Cumulative streak bonus: 2x=+5, 3x=+10, 4x=+15, 5x=+20, etc.
       if (nextStreak >= 2) {
         const streakBonus = (nextStreak - 1) * 5;
         bonus += streakBonus;
@@ -83,6 +92,7 @@ export default function GamePage() {
 
   function handleNext() {
     setQuestionAnimation("exit");
+
     setTimeout(() => {
       setSelectedOption(null);
       setTimeLeft(10);
@@ -102,111 +112,140 @@ export default function GamePage() {
             setShowRoundTransition(false);
           }, 1500);
         } else {
+          // Navigate immediately to results when game ends
           router.push(`/result?score=${score}&correct=${totalCorrect}`);
         }
       }
     }, 100);
   }
 
+  function handleReplay() {
+    // Don't remove used questions - they should stay permanently used
+    setCurrentRound(1);
+    setQuestionIndex(0);
+    setScore(0);
+    setStreak(0);
+    setTotalCorrect(0);
+    setSelectedOption(null);
+    setTimeLeft(10);
+    setShowRoundTransition(false);
+    setQuestionAnimation("enter");
+  }
+
   const current = roundQuestions[questionIndex] || {};
   const correctAnswerText = current.options ? current.options[current.answer] : '';
   const progress = ((questionIndex) / QUESTIONS_PER_ROUND) * 100;
 
+  // Round Transition Screen
   if (showRoundTransition) {
     return (
-      <div className="w-screen h-screen flex items-center justify-center bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white p-4">
+      <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white flex items-center justify-center p-4">
         <div className="text-center animate-pulse">
-          <div className="text-4xl mb-3">🎯</div>
-          <h1 className="text-lg font-bold mb-1">Round {currentRound - 1} Complete!</h1>
-          <p className="text-sm mb-2">Correct: {correctInRound}/{QUESTIONS_PER_ROUND}</p>
+          <div className="text-4xl mb-4 animate-bounce">🎯</div>
+          <h1 className="text-2xl font-bold mb-3 animate-fade-in">Round {currentRound - 1} Complete!</h1>
+          <div className="text-lg mb-3">
+            Correct: {correctInRound}/{QUESTIONS_PER_ROUND}
+          </div>
           {correctInRound === QUESTIONS_PER_ROUND && (
-            <div className="text-yellow-300 text-base font-bold animate-bounce">Perfect! +20 ⭐</div>
+            <div className="text-xl font-bold text-yellow-300 animate-bounce">
+              Perfect! +20 Bonus! ⭐
+            </div>
           )}
-          <p className="mt-2 text-sm">Starting Round {currentRound}...</p>
+          <div className="mt-4 text-base">
+            Starting Round {currentRound}...
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="w-screen h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white p-3 overflow-hidden flex flex-col">
+    <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white p-3 flex flex-col overflow-hidden">
 
-      {/* Streak Popup */}
+      {/* Streak Bonus Popup */}
       {showStreakBonus && (
-        <div className="fixed top-12 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black px-3 py-1 rounded-full text-xs font-bold animate-bounce shadow-md z-50">
+        <div className="fixed top-16 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black px-4 py-2 rounded-full font-bold text-sm animate-bounce z-50 shadow-lg">
           🔥 {showStreakBonus}
         </div>
       )}
 
-      {/* Stats Header */}
-      <div className="flex justify-between items-center text-xs mb-2">
-        <div className="bg-black/20 px-3 py-1 rounded">Score: <span className="font-bold">{score}</span></div>
-        <div className="bg-black/20 px-3 py-1 rounded">Streak: <span className="font-bold">{streak}🔥</span></div>
+      {/* Score and Stats Header */}
+      <div className="flex justify-between items-center mb-3">
+        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-3 py-2">
+          <div className="text-xs opacity-80">Score</div>
+          <div className="text-lg font-bold">{score}</div>
+        </div>
+        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-3 py-2">
+          <div className="text-xs opacity-80">Streak</div>
+          <div className="text-lg font-bold">{streak}🔥</div>
+        </div>
       </div>
 
-      {/* Main Game Card */}
-      {current.question && (
-        <div className={`bg-white text-black p-3 rounded-lg shadow-lg flex-1 w-full flex flex-col transition-all duration-200 overflow-hidden ${
+      {current.question ? (
+        <div className={`bg-white/95 backdrop-blur-sm text-black p-4 rounded-xl shadow-2xl flex-1 flex flex-col transform transition-all duration-200 ${
           questionAnimation === "enter" ? "animate-slide-up" : 
           questionAnimation === "exit" ? "animate-slide-down opacity-0" : ""
         }`}>
-          <div className="mb-2">
-            <div className="flex justify-between text-[10px] mb-1">
+
+          {/* Progress Bar */}
+          <div className="mb-4">
+            <div className="flex justify-between text-xs mb-2">
               <span>Round {currentRound}/{TOTAL_ROUNDS}</span>
               <span>Q{questionIndex + 1}/{QUESTIONS_PER_ROUND}</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-1">
-              <div
-                className="bg-gradient-to-r from-purple-500 to-pink-500 h-1 rounded-full"
+            <div className="w-full bg-gray-200 rounded-full h-1.5">
+              <div 
+                className="bg-gradient-to-r from-purple-500 to-pink-500 h-1.5 rounded-full transition-all duration-500"
                 style={{ width: `${progress}%` }}
               />
             </div>
           </div>
 
           {/* Timer */}
-          <div className="text-center mb-2">
-            <div className={`inline-block w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border-2 ${
-              timeLeft <= 3 ? 'border-red-500 text-red-500 animate-pulse' :
-              timeLeft <= 5 ? 'border-yellow-500 text-yellow-500' :
+          <div className="text-center mb-4">
+            <div className={`inline-block w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold border-3 ${
+              timeLeft <= 3 ? 'border-red-500 text-red-500 animate-pulse' : 
+              timeLeft <= 5 ? 'border-yellow-500 text-yellow-500' : 
               'border-green-500 text-green-500'
             }`}>
               {timeLeft}
             </div>
           </div>
 
-          {/* Question Text */}
-          <h2 className="text-sm font-bold text-center mb-2 leading-tight">{current.question}</h2>
+          {/* Question */}
+          <h2 className="text-lg font-bold mb-4 text-center leading-tight flex-shrink-0">{current.question}</h2>
 
           {/* Options */}
-          <div className="grid gap-2 flex-1">
+          <div className="grid gap-3 flex-1">
             {current.options.map((opt, i) => (
               <button
                 key={i}
                 onClick={() => handleAnswer(opt)}
-                className={`text-xs font-medium p-2 rounded-lg transition-all duration-100 flex items-center w-full disabled:opacity-60 ${
+                className={`p-3 rounded-lg text-sm font-medium transition-all duration-75 transform hover:scale-102 active:scale-98 ${
                   selectedOption === opt
                     ? opt === correctAnswerText
-                      ? "bg-green-500 text-white shadow-md"
-                      : "bg-red-500 text-white animate-shake"
+                      ? "bg-green-500 text-white animate-pulse shadow-lg"
+                      : "bg-red-500 text-white animate-shake shadow-lg"
                     : selectedOption === null
-                      ? "bg-gray-100 border border-gray-300 hover:bg-purple-100 active:bg-pink-100"
+                      ? "bg-gradient-to-r from-gray-50 to-gray-100 hover:from-purple-50 hover:to-pink-50 active:from-purple-100 active:to-pink-100 border border-gray-200 hover:border-purple-300 active:border-purple-400 shadow-sm hover:shadow-md"
                       : opt === correctAnswerText
                         ? "bg-green-100 border border-green-300"
-                        : "bg-gray-100 border border-gray-200"
+                        : "bg-gray-100 border border-gray-200 opacity-60"
                 }`}
                 disabled={selectedOption !== null}
               >
-                <span className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center text-[10px] mr-2 font-bold">
-                  {String.fromCharCode(65 + i)}
-                </span>
-                <span className="text-left">{opt}</span>
+                <div className="flex items-center">
+                  <span className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center mr-3 text-xs font-bold">
+                    {String.fromCharCode(65 + i)}
+                  </span>
+                  <span className="text-left leading-tight">{opt}</span>
+                </div>
               </button>
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Animations */}
       <style jsx>{`
         @keyframes slide-up {
           from { transform: translateY(30px); opacity: 0; }
@@ -216,14 +255,22 @@ export default function GamePage() {
           from { transform: translateY(0); opacity: 1; }
           to { transform: translateY(-30px); opacity: 0; }
         }
+        @keyframes fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-2px); }
-          75% { transform: translateX(2px); }
+          25% { transform: translateX(-3px); }
+          75% { transform: translateX(3px); }
         }
         .animate-slide-up { animation: slide-up 0.3s ease-out; }
         .animate-slide-down { animation: slide-down 0.2s ease-in; }
+        .animate-fade-in { animation: fade-in 0.5s ease-out; }
         .animate-shake { animation: shake 0.3s ease-in-out; }
+        .hover\\:scale-102:hover { transform: scale(1.02); }
+        .active\\:scale-95:active { transform: scale(0.95); }
+        .active\\:scale-98:active { transform: scale(0.98); }
       `}</style>
     </div>
   );
