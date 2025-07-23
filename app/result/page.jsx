@@ -2,9 +2,10 @@
 export const dynamic = "force-dynamic";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 
-export default function ResultPage() {
+// Separate component that uses useSearchParams
+function ResultContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const score = searchParams.get("score");
@@ -216,5 +217,26 @@ export default function ResultPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+// Loading fallback component
+function ResultPageLoading() {
+  return (
+    <main className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center">
+      <div className="text-center">
+        <div className="text-4xl mb-4 animate-spin">🎮</div>
+        <div className="text-lg">Loading your results...</div>
+      </div>
+    </main>
+  );
+}
+
+// Main export component with Suspense wrapper
+export default function ResultPage() {
+  return (
+    <Suspense fallback={<ResultPageLoading />}>
+      <ResultContent />
+    </Suspense>
   );
 }
