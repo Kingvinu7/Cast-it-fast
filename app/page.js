@@ -10,6 +10,7 @@ export default function HomePage() {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => { 
+    const initMiniapp = async () => {
     // ✅ Let Farcaster know the Miniapp is ready
     await sdk.actions.ready();
 
@@ -26,6 +27,9 @@ if (context?.user) {
     
     // Mark that we're on the client side
     setIsClient(true);
+
+      initMiniapp(); // call the async function
+}, []);
     
     // Generate random positions on client side to avoid hydration mismatch
     const emojis = [...Array(15)].map((_, i) => ({
