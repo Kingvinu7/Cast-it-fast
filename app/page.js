@@ -2,13 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import { sdk } from "@farcaster/miniapp-sdk"; // ← ✅ Import Miniapp SDK
 
 export default function HomePage() {
   const router = useRouter();
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [isClient, setIsClient] = useState(false);
 
-  useEffect(() => {
+  useEffect(() => { 
+    // ✅ Let Farcaster know the Miniapp is ready
+    sdk.actions.ready();
+    
     // Mark that we're on the client side
     setIsClient(true);
     
