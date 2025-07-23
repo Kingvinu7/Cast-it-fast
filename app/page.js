@@ -11,7 +11,18 @@ export default function HomePage() {
 
   useEffect(() => { 
     // ✅ Let Farcaster know the Miniapp is ready
-    sdk.actions.ready();
+    await sdk.actions.ready();
+
+    const context = await sdk.context;
+
+if (context?.user) {
+  setCurrentUser({
+    fid: context.user.fid,
+    username: context.user.username,
+    displayName: context.user.displayName,
+    pfpUrl: context.user.pfpUrl,
+  });
+}
     
     // Mark that we're on the client side
     setIsClient(true);
