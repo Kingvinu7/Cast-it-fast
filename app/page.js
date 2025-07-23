@@ -10,25 +10,26 @@ export default function HomePage() {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => { 
-    const initMiniapp = async () => {
+  const initMiniapp = async () => {
     // ✅ Let Farcaster know the Miniapp is ready
     await sdk.actions.ready();
 
     const context = await sdk.context;
 
-if (context?.user) {
-  setCurrentUser({
-    fid: context.user.fid,
-    username: context.user.username,
-    displayName: context.user.displayName,
-    pfpUrl: context.user.pfpUrl,
-  });
-}
-    
+    if (context?.user) {
+      setCurrentUser({
+        fid: context.user.fid,
+        username: context.user.username,
+        displayName: context.user.displayName,
+        pfpUrl: context.user.pfpUrl,
+      });
+    }
+
     // Mark that we're on the client side
     setIsClient(true);
+  };
 
-      initMiniapp(); // call the async function
+  initMiniapp(); // ✅ Call it AFTER the function is defined
 }, []);
     
     // Generate random positions on client side to avoid hydration mismatch
