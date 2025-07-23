@@ -160,88 +160,92 @@ export default function GamePage() {
   }
 
   return (
-    <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white p-3 flex flex-col overflow-hidden">
+    <div className="h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-indigo-600 text-white p-2 flex flex-col overflow-hidden">
 
       {/* Streak Bonus Popup */}
       {showStreakBonus && (
-        <div className="fixed top-16 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black px-4 py-2 rounded-full font-bold text-sm animate-bounce z-50 shadow-lg">
+        <div className="fixed top-12 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black px-3 py-1.5 rounded-full font-bold text-xs animate-bounce z-50 shadow-lg">
           🔥 {showStreakBonus}
         </div>
       )}
 
-      {/* Score and Stats Header */}
-      <div className="flex justify-between items-center mb-3">
-        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-3 py-2">
+      {/* Compact Score and Stats Header */}
+      <div className="flex justify-between items-center mb-2">
+        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-2.5 py-1.5">
           <div className="text-xs opacity-80">Score</div>
-          <div className="text-lg font-bold">{score}</div>
+          <div className="text-base font-bold">{score}</div>
         </div>
-        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-3 py-2">
+        <div className="bg-black/20 backdrop-blur-sm rounded-lg px-2.5 py-1.5">
           <div className="text-xs opacity-80">Streak</div>
-          <div className="text-lg font-bold">{streak}🔥</div>
+          <div className="text-base font-bold">{streak}🔥</div>
         </div>
       </div>
 
       {current.question ? (
-        <div className={`bg-white/95 backdrop-blur-sm text-black p-4 rounded-xl shadow-2xl flex-1 flex flex-col transform transition-all duration-200 ${
+        <div className={`bg-white/95 backdrop-blur-sm text-black rounded-xl shadow-2xl flex-1 flex flex-col transform transition-all duration-200 min-h-0 ${
           questionAnimation === "enter" ? "animate-slide-up" : 
           questionAnimation === "exit" ? "animate-slide-down opacity-0" : ""
         }`}>
 
-          {/* Progress Bar */}
-          <div className="mb-4">
-            <div className="flex justify-between text-xs mb-2">
+          {/* Compact Progress Bar */}
+          <div className="p-3 pb-2">
+            <div className="flex justify-between text-xs mb-1.5">
               <span>Round {currentRound}/{TOTAL_ROUNDS}</span>
               <span>Q{questionIndex + 1}/{QUESTIONS_PER_ROUND}</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-1.5">
+            <div className="w-full bg-gray-200 rounded-full h-1">
               <div 
-                className="bg-gradient-to-r from-purple-500 to-pink-500 h-1.5 rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-purple-500 to-pink-500 h-1 rounded-full transition-all duration-500"
                 style={{ width: `${progress}%` }}
               />
             </div>
           </div>
 
-          {/* Timer */}
-          <div className="text-center mb-4">
-            <div className={`inline-block w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold border-3 ${
-              timeLeft <= 3 ? 'border-red-500 text-red-500 animate-pulse' : 
-              timeLeft <= 5 ? 'border-yellow-500 text-yellow-500' : 
-              'border-green-500 text-green-500'
-            }`}>
-              {timeLeft}
+          {/* Compact Timer */}
+          <div className="px-3 pb-2">
+            <div className="text-center">
+              <div className={`inline-block w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${
+                timeLeft <= 3 ? 'border-red-500 text-red-500 animate-pulse' : 
+                timeLeft <= 5 ? 'border-yellow-500 text-yellow-500' : 
+                'border-green-500 text-green-500'
+              }`}>
+                {timeLeft}
+              </div>
             </div>
           </div>
 
-          {/* Question */}
-          <h2 className="text-lg font-bold mb-4 text-center leading-tight flex-shrink-0">{current.question}</h2>
+          {/* Compact Question */}
+          <div className="px-3 pb-2">
+            <h2 className="text-base font-bold text-center leading-tight">{current.question}</h2>
+          </div>
 
-          {/* Options */}
-          <div className="grid gap-3 flex-1">
-            {current.options.map((opt, i) => (
-              <button
-                key={i}
-                onClick={() => handleAnswer(opt)}
-                className={`p-3 rounded-lg text-sm font-medium transition-all duration-75 transform hover:scale-102 active:scale-98 ${
-                  selectedOption === opt
-                    ? opt === correctAnswerText
-                      ? "bg-green-500 text-white animate-pulse shadow-lg"
-                      : "bg-red-500 text-white animate-shake shadow-lg"
-                    : selectedOption === null
-                      ? "bg-gradient-to-r from-gray-50 to-gray-100 hover:from-purple-50 hover:to-pink-50 active:from-purple-100 active:to-pink-100 border border-gray-200 hover:border-purple-300 active:border-purple-400 shadow-sm hover:shadow-md"
-                      : opt === correctAnswerText
-                        ? "bg-green-100 border border-green-300"
-                        : "bg-gray-100 border border-gray-200 opacity-60"
-                }`}
-                disabled={selectedOption !== null}
-              >
-                <div className="flex items-center">
-                  <span className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center mr-3 text-xs font-bold">
+          {/* Options - Takes remaining space */}
+          <div className="flex-1 px-3 pb-3 flex flex-col">
+            <div className="grid gap-2 flex-1">
+              {current.options.map((opt, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleAnswer(opt)}
+                  className={`p-2.5 rounded-lg text-sm font-medium transition-all duration-75 transform hover:scale-102 active:scale-98 flex items-start min-h-[44px] ${
+                    selectedOption === opt
+                      ? opt === correctAnswerText
+                        ? "bg-green-500 text-white animate-pulse shadow-lg"
+                        : "bg-red-500 text-white animate-shake shadow-lg"
+                      : selectedOption === null
+                        ? "bg-gradient-to-r from-gray-50 to-gray-100 hover:from-purple-50 hover:to-pink-50 active:from-purple-100 active:to-pink-100 border border-gray-200 hover:border-purple-300 active:border-purple-400 shadow-sm hover:shadow-md"
+                        : opt === correctAnswerText
+                          ? "bg-green-100 border border-green-300"
+                          : "bg-gray-100 border border-gray-200 opacity-60"
+                  }`}
+                  disabled={selectedOption !== null}
+                >
+                  <span className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center mr-2.5 text-xs font-bold flex-shrink-0 mt-0.5">
                     {String.fromCharCode(65 + i)}
                   </span>
-                  <span className="text-left leading-tight">{opt}</span>
-                </div>
-              </button>
-            ))}
+                  <span className="text-left leading-tight flex-1">{opt}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
