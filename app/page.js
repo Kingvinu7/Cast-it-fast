@@ -8,27 +8,56 @@ export default function HomePage() {
   const router = useRouter();
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [isClient, setIsClient] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null); // Add this state
 
   useEffect(() => {
-  const initMiniapp = async () => {
-    await sdk.actions.ready();
+    let mounted = true;
 
-    const context = await sdk.context;
+    const initMiniapp = async () => {
+      try {
+        // Check if we're in a Farcaster miniapp context
+        const isInMiniApp = await sdk.isInMiniApp(2000); // 2 second timeout
+        
+        if (isInMiniApp) {
+          console.log("Running in Farcaster miniapp context");
+          await sdk.actions.ready();
+          const context = await sdk.context;
 
-    if (context?.user) {
-      setCurrentUser({
-        fid: context.user.fid,
-        username: context.user.username,
-        displayName: context.user.displayName,
-        pfpUrl: context.user.pfpUrl,
-      });
-    }
+          if (context?.user && mounted) {
+            setCurrentUser({
+              fid: context.user.fid,
+              username: context.user.username,
+              displayName: context.user.displayName,
+              pfpUrl: context.user.pfpUrl,
+            });
+          }
+        } else {
+          console.log("Not in Farcaster context, running as regular web app");
+        }
+      } catch (error) {
+        console.log("Farcaster SDK initialization failed, proceeding anyway:", error);
+      } finally {
+        if (mounted) {
+          setIsClient(true); // Always set this to true regardless of Farcaster context
+        }
+      }
+    };
 
-    setIsClient(true);
-  };
+    // Fallback timer - ensure app loads even if Farcaster detection fails
+    const fallbackTimer = setTimeout(() => {
+      if (mounted && !isClient) {
+        console.log("Fallback: Setting isClient to true");
+        setIsClient(true);
+      }
+    }, 3000); // 3 second fallback
 
-  initMiniapp();
-}, []); // ✅ <-- This was probably missing
+    initMiniapp();
+
+    return () => {
+      mounted = false;
+      clearTimeout(fallbackTimer);
+    };
+  }, []); // ✅ <-- This was probably missing
   
    useEffect(() => {
     // Generate random positions on client side to avoid hydration mismatch
@@ -81,6 +110,13 @@ export default function HomePage() {
         <p className="text-sm text-white/70 mb-6">
           Fast-paced trivia. 3 rounds. 15 questions. Can you beat the game?
         </p>
+
+        {/* Show user info if available */}
+        {currentUser && (
+          <div className="mb-4 text-sm text-white/80">
+            Welcome, {currentUser.displayName || currentUser.username}! 👋
+          </div>
+        )}
 
         <button
           onClick={() => router.push("/game")}
