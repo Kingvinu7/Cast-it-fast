@@ -1,0 +1,32 @@
+{
+  "frame": {
+    "name": "Cast it Fast",
+    "version": "1",
+    "iconUrl": "https://Cast-it-fast.vercel.app/app-icon.png",
+    "homeUrl": "https://Cast-it-fast.vercel.app",
+    "imageUrl": "https://Cast-it-fast.vercel.app/og.png",
+    "buttonTitle": "Start game",
+    "splashImageUrl": "https://Cast-it-fast.vercel.app/splash-image.png",
+    "splashBackgroundColor": "#a855f7",
+    "subtitle": "Fast paced trivia game",
+    "description": "play the fasr paced trivia game on Farcaster, made by vinu07",
+    "primaryCategory": "games",
+    "tags": [
+      "games",
+      "trivia",
+      "miniapp",
+      "trending",
+      "farcaster"
+    ],
+    "heroImageUrl": "https://Cast-it-fast.vercel.app/hero-image.png",
+    "tagline": "3 rounds, 10 seconds, Five Qns",
+    "ogTitle": "Cast it Fast - Farcaster quiz",
+    "ogImageUrl": "https://Cast-it-fast.vercel.app/og.png",
+    "castShareUrl": "https://Cast-it-fast.vercel.app"
+  },
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  }
+}
