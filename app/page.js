@@ -17,6 +17,7 @@ export default function HomePage() {
         const context = await sdk.context;
 
         if (context?.user) {
+          console.log("🧠 Farcaster User Context:", context.user);
           setCurrentUser({
             fid: context.user.fid,
             username: context.user.username,
