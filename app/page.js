@@ -8,62 +8,27 @@ export default function HomePage() {
   const router = useRouter();
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [isClient, setIsClient] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null); // Add this state
 
   useEffect(() => {
-    let mounted = true;
+  const initMiniapp = async () => {
+    await sdk.actions.ready();
 
-    const initApp = async () => {
-      // Simple environment detection without SDK
-      const isInIframe = window.parent !== window;
-      const hasReactNativeWebView = typeof window !== 'undefined' && window.ReactNativeWebView;
-      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-      const isFarcasterContext = isInIframe || hasReactNativeWebView || userAgent.includes('Farcaster');
+    const context = await sdk.context;
 
-      console.log('Environment check:', { isInIframe, hasReactNativeWebView, isFarcasterContext });
-
-      if (isFarcasterContext) {
-        try {
-          console.log("Attempting Farcaster SDK initialization");
-          await sdk.actions.ready();
-          const context = await sdk.context;
-
-          if (context?.user && mounted) {
+    if (context?.user && mounted) {
             setCurrentUser({
               fid: context.user.fid,
               username: context.user.username,
               displayName: context.user.displayName,
               pfpUrl: context.user.pfpUrl,
             });
-            console.log("Farcaster user loaded:", context.user);
           }
-        } catch (error) {
-          console.log("Farcaster SDK failed, but continuing:", error);
-        }
-      } else {
-        console.log("Not in Farcaster context, running as regular web app");
-      }
 
-      if (mounted) {
-        setIsClient(true);
-      }
-    };
+    setIsClient(true);
+  };
 
-    // Always set isClient to true after 1 second regardless
-    const quickTimer = setTimeout(() => {
-      if (mounted) {
-        console.log("Quick fallback: Setting isClient to true");
-        setIsClient(true);
-      }
-    }, 1000);
-
-    initApp();
-
-    return () => {
-      mounted = false;
-      clearTimeout(quickTimer);
-    };
-  }, []);
+  initMiniapp();
+}, []); // ✅ <-- This was probably missing
   
    useEffect(() => {
     // Generate random positions on client side to avoid hydration mismatch
@@ -117,13 +82,6 @@ export default function HomePage() {
           Fast-paced trivia. 3 rounds. 15 questions. Can you beat the game?
         </p>
 
-        {/* Show user info if available */}
-        {currentUser && (
-          <div className="mb-4 text-sm text-white/80">
-            Welcome, {currentUser.displayName || currentUser.username}! 👋
-          </div>
-        )}
-
         <button
           onClick={() => router.push("/game")}
           className="bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-6 py-3 rounded-xl text-lg font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
@@ -164,4 +122,4 @@ export default function HomePage() {
       `}</style>
     </main>
   );
-}
+} 
