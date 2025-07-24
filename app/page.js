@@ -8,29 +8,34 @@ export default function HomePage() {
   const router = useRouter();
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [isClient, setIsClient] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null); // ← Fix: Add this missing state
 
   useEffect(() => {
-  const initMiniapp = async () => {
-    await sdk.actions.ready();
+    const initMiniapp = async () => {
+      try {
+        await sdk.actions.ready();
+        const context = await sdk.context;
 
-    const context = await sdk.context;
+        if (context?.user) {
+          setCurrentUser({
+            fid: context.user.fid,
+            username: context.user.username,
+            displayName: context.user.displayName,
+            pfpUrl: context.user.pfpUrl,
+          });
+        }
+      } catch (error) {
+        console.error("Farcaster SDK initialization failed:", error);
+        // Optional: Handle fallback for non-Farcaster contexts
+      } finally {
+        setIsClient(true);
+      }
+    };
 
-    if (context?.user) {
-      setCurrentUser({
-        fid: context.user.fid,
-        username: context.user.username,
-        displayName: context.user.displayName,
-        pfpUrl: context.user.pfpUrl,
-      });
-    }
+    initMiniapp();
+  }, []); // ✅ <-- This was probably missing
 
-    setIsClient(true);
-  };
-
-  initMiniapp();
-}, []); // ✅ <-- This was probably missing
-  
-   useEffect(() => {
+  useEffect(() => {
     // Generate random positions on client side to avoid hydration mismatch
     const emojis = [...Array(15)].map((_, i) => ({
       id: i,
@@ -83,9 +88,9 @@ export default function HomePage() {
         </p> 
 
         {/* Show user info if available */}
-        {currentUser && (
+        {currentUser?.fid && (  // ← Fix: Add optional chaining and truthy check for safe prerendering
           <div className="mb-4 text-sm text-white/80">
-            Welcome, {currentUser.displayName || currentUser.username}! 👋
+            Welcome, {currentUser.displayName || currentUser.username || 'Guest'}! 👋
           </div>
         )}
 
