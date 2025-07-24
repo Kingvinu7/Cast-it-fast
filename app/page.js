@@ -15,14 +15,14 @@ export default function HomePage() {
 
     const context = await sdk.context;
 
-    if (context?.user && mounted) {
-            setCurrentUser({
-              fid: context.user.fid,
-              username: context.user.username,
-              displayName: context.user.displayName,
-              pfpUrl: context.user.pfpUrl,
-            });
-          }
+    if (context?.user) {
+      setCurrentUser({
+        fid: context.user.fid,
+        username: context.user.username,
+        displayName: context.user.displayName,
+        pfpUrl: context.user.pfpUrl,
+      });
+    }
 
     setIsClient(true);
   };
@@ -80,7 +80,14 @@ export default function HomePage() {
 
         <p className="text-sm text-white/70 mb-6">
           Fast-paced trivia. 3 rounds. 15 questions. Can you beat the game?
-        </p>
+        </p> 
+
+        {/* Show user info if available */}
+        {currentUser && (
+          <div className="mb-4 text-sm text-white/80">
+            Welcome, {currentUser.displayName || currentUser.username}! 👋
+          </div>
+        )}
 
         <button
           onClick={() => router.push("/game")}
@@ -122,4 +129,4 @@ export default function HomePage() {
       `}</style>
     </main>
   );
-} 
+}
