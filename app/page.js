@@ -13,13 +13,18 @@ export default function HomePage() {
   useEffect(() => {
     let mounted = true;
 
-    const initMiniapp = async () => {
-      try {
-        // Check if we're in a Farcaster miniapp context
-        const isInMiniApp = await sdk.isInMiniApp(2000); // 2 second timeout
-        
-        if (isInMiniApp) {
-          console.log("Running in Farcaster miniapp context");
+    const initApp = async () => {
+      // Simple environment detection without SDK
+      const isInIframe = window.parent !== window;
+      const hasReactNativeWebView = typeof window !== 'undefined' && window.ReactNativeWebView;
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      const isFarcasterContext = isInIframe || hasReactNativeWebView || userAgent.includes('Farcaster');
+
+      console.log('Environment check:', { isInIframe, hasReactNativeWebView, isFarcasterContext });
+
+      if (isFarcasterContext) {
+        try {
+          console.log("Attempting Farcaster SDK initialization");
           await sdk.actions.ready();
           const context = await sdk.context;
 
@@ -30,34 +35,35 @@ export default function HomePage() {
               displayName: context.user.displayName,
               pfpUrl: context.user.pfpUrl,
             });
+            console.log("Farcaster user loaded:", context.user);
           }
-        } else {
-          console.log("Not in Farcaster context, running as regular web app");
+        } catch (error) {
+          console.log("Farcaster SDK failed, but continuing:", error);
         }
-      } catch (error) {
-        console.log("Farcaster SDK initialization failed, proceeding anyway:", error);
-      } finally {
-        if (mounted) {
-          setIsClient(true); // Always set this to true regardless of Farcaster context
-        }
+      } else {
+        console.log("Not in Farcaster context, running as regular web app");
+      }
+
+      if (mounted) {
+        setIsClient(true);
       }
     };
 
-    // Fallback timer - ensure app loads even if Farcaster detection fails
-    const fallbackTimer = setTimeout(() => {
-      if (mounted && !isClient) {
-        console.log("Fallback: Setting isClient to true");
+    // Always set isClient to true after 1 second regardless
+    const quickTimer = setTimeout(() => {
+      if (mounted) {
+        console.log("Quick fallback: Setting isClient to true");
         setIsClient(true);
       }
-    }, 3000); // 3 second fallback
+    }, 1000);
 
-    initMiniapp();
+    initApp();
 
     return () => {
       mounted = false;
-      clearTimeout(fallbackTimer);
+      clearTimeout(quickTimer);
     };
-  }, []); // ✅ <-- This was probably missing
+  }, []);
   
    useEffect(() => {
     // Generate random positions on client side to avoid hydration mismatch
