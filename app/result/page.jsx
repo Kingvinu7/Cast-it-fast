@@ -95,6 +95,25 @@ function ResultContent() {
     return 'Beginner';
   };
 
+  // Farcaster compose cast function
+  const shareTofarcaster = () => {
+    const numScore = parseInt(score) || 0;
+    const numCorrect = parseInt(correct) || 0;
+    
+    // Create simple share text
+    const shareText = `I scored ${numScore} and answered ${numCorrect} questions on Cast It Fast trivia game on Farcaster, can you beat me?`;
+    
+    // Encode the text and miniapp URL
+    const encodedText = encodeURIComponent(shareText);
+    const miniappUrl = encodeURIComponent("https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast");
+    
+    // Create Farcaster compose URL
+    const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`;
+    
+    // Open in new window/tab
+    window.open(farcasterUrl, '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <main className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center p-3 relative overflow-hidden">
       
@@ -188,6 +207,16 @@ function ResultContent() {
             <span className="ml-2">↻</span>
           </button>
           
+          {/* Farcaster Share Button */}
+          <button
+            onClick={shareTofarcaster}
+            className="group bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
+          >
+            <span className="mr-2">🚀</span>
+            Share Your Score
+            <span className="ml-2">📢</span>
+          </button>
+          
           <button
             onClick={() => router.push("/")}
             className="group bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 border border-white/30 hover:border-white/50 w-full touch-manipulation"
@@ -202,7 +231,7 @@ function ResultContent() {
         <div className={`mt-2 opacity-60 transform transition-all duration-1000 delay-1200 ${
           animateScore ? 'translate-y-0 opacity-60' : 'translate-y-10 opacity-0'
         }`}>
-          <p className="text-xs">Challenge yourself again!</p>
+          <p className="text-xs">Challenge your friends on Farcaster!</p>
         </div>
       </div>
 
