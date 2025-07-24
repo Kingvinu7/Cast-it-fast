@@ -24,10 +24,9 @@
     "ogImageUrl": "https://Cast-it-fast.vercel.app/og.png",
     "castShareUrl": "https://Cast-it-fast.vercel.app"
   },
-  {
   "accountAssociation": {
     "header": "eyJmaWQiOjI1MDg2OSwidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweDQwZUY3Qzc1YjRlRDBkQjY3N0MzN2VjODkxODM0QjI1MDk1ODI1ZDYifQ",
-    "payload": "eyJkb21haW4iOiJDYXN0LWl0LWZhc3QudmVyY2VsLmFwcCJ9",
-    "signature": "MHg5NzdhYTQ3NmZmNmYxZDUzMmRkMDMwYTBjODMxZGI3NGQwNmFmY2NlNmY2YTE1NGRhYWRlODllNmVjZjc3YmY0NTg1ZGI5OGMwNzBlMjIyMjY0YjAyMGY1NjZkZDQ1Yzc2ZjI3NGVlM2QwZGEyM2UwMzQxOWE3NDFhNzU3OWIwNzFj"
+    "payload": "eyJkb21haW4iOiJjYXN0LWl0LWZhc3QudmVyY2VsLmFwcCJ9",
+    "signature": "MHg3ZDcwMjNhMWI1N2MxYmEyNDlkM2FlNjhlNDYxNGI4MDZlMWJlZDgyNGU3MGM4YTJkYjg2YjkyMjA2YmJiMTUyNmI4NzVkNGU2ZmRhOGIyYWRiZTI3MWUyNGFiYWEwYzA3ZjNjMGZmYzgzNmQzOGVlZGE1OWI0N2FlYzg3YWI5ZTFj"
   }
 }
