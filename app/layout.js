@@ -5,6 +5,7 @@ export const metadata = {
     title: "Cast-it-Fast",
     description: "Fast-paced trivia. 3 rounds. 15 questions. Can you beat the game?",
     images: ["https://cast-it-fast.vercel.app/og.png"],
+    button: "Start game"
   },
   other: {
     "fc:frame": "vNext",
