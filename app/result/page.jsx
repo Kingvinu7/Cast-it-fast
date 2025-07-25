@@ -57,7 +57,7 @@ try {
     address: leaderboardContract.address,  
     abi: leaderboardContract.abi,  
     functionName: 'submitScore',  
-    args: [currentUser.displayName, parseInt(score)],  
+    args: [String(currentUser.displayName), parseInt(score)],  
   });  
 } catch (err) {
   console.error("Submission failed:", err);
