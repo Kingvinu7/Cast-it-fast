@@ -3,6 +3,9 @@ export const dynamic = "force-dynamic";
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
+import { ethers } from "ethers";
+import leaderboardContract from "@/lib/leaderboardContract";
+import { sdk } from "@farcaster/miniapp-sdk";
 
 // Separate component that uses useSearchParams
 function ResultContent() {
@@ -12,6 +15,56 @@ function ResultContent() {
   const correct = searchParams.get("correct");
   const [showConfetti, setShowConfetti] = useState(false);
   const [animateScore, setAnimateScore] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Add submit function
+  const submitToLeaderboard = async () => {
+    if (!window.ethereum || !score || !currentUser?.displayName) {
+      console.warn("Missing wallet or user data");
+      return;
+    }
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(
+        leaderboardContract.address,
+        leaderboardContract.abi,
+        signer
+      );
+
+      const tx = await contract.submitScore(currentUser.displayName, parseInt(score));
+      await tx.wait();
+
+      console.log("Score submitted!");
+    } catch (err) {
+      console.error("Submission failed:", err);
+    }
+  };
+
+  useEffect(() => {
+    // Initialize SDK and get user context
+    const initializeUser = async () => {
+      try {
+        await sdk.actions.ready();
+        const context = await sdk.context;
+
+        if (context?.user) {
+          console.log("🧠 Farcaster User Context:", context.user);
+          setCurrentUser({
+            fid: context.user.fid,
+            username: context.user.username,
+            displayName: context.user.displayName,
+            pfpUrl: context.user.pfpUrl,
+          });
+        }
+      } catch (error) {
+        console.error("Farcaster SDK initialization failed:", error);
+      }
+    };
+
+    initializeUser();
+  }, []);
 
   useEffect(() => {
     // Trigger animations on mount
@@ -62,7 +115,12 @@ function ResultContent() {
     // Save back to localStorage
     localStorage.setItem("playHistory", JSON.stringify(limitedHistory));
     console.log("Game result saved to history:", gameResult);
-  }, [score, correct]);
+
+    // Call submitToLeaderboard after score is ready with a small delay
+    setTimeout(() => {
+      submitToLeaderboard();
+    }, 1000);
+  }, [score, correct, currentUser]); // Add currentUser to dependency array
 
   const getPerformanceMessage = (score, correct) => {
     const numScore = parseInt(score) || 0;
