@@ -10,7 +10,7 @@ export default function LeaderboardPage() {
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
-        const provider = new ethers.JsonRpcProvider("https://sepolia.infura.io/v3/YOUR_INFURA_KEY"); // change this if needed
+        const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
         const contract = getContract(provider);
 
         const total = await contract.getTotalEntries();
