@@ -79,15 +79,23 @@ try {
 await sdk.actions.ready();
 const context = sdk.context;
 
-if (context?.user) {  
-      console.log("🧠 Farcaster User Context:", context.user);  
-      setCurrentUser({  
-        fid: context.user.fid,  
-        username: context.user.username,  
-        displayName: context.user.displayName,  
-        pfpUrl: context.user.pfpUrl,  
-      });  
-    }  
+if (context?.user) {
+  console.log("🧠 Farcaster User Context:", context.user);
+
+  let displayName;
+  try {
+    displayName = await context.user.displayName();
+  } catch {
+    displayName = context.user.displayName;
+  }
+
+  setCurrentUser({
+    fid: context.user.fid,
+    username: context.user.username,
+    displayName,
+    pfpUrl: context.user.pfpUrl,
+  });
+}
   } catch (error) {  
     console.error("Farcaster SDK initialization failed:", error);  
   }  
