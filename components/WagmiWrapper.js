@@ -1,11 +1,11 @@
 "use client";
-import { WagmiProvider } from 'wagmi'
-import { config } from '@/lib/wagmi.config'
+import { WagmiConfig } from 'wagmi'; // ❗️ not WagmiProvider
+import { config } from '@/lib/wagmi.config';
 
 export function WagmiWrapper({ children }) {
   return (
-    <WagmiProvider config={config}>
+    <WagmiConfig config={config}>
       {children}
-    </WagmiProvider>
-  )
+    </WagmiConfig>
+  );
 }
