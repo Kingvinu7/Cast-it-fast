@@ -117,8 +117,8 @@ function ResultContent() {
     // Save back to localStorage
     localStorage.setItem("playHistory", JSON.stringify(limitedHistory));
     console.log("Game result saved to history:", gameResult);
+  }, [score, correct]); // Fixed: Added proper closing and dependencies
 
-    
   const getPerformanceMessage = (score, correct) => {
     const numScore = parseInt(score) || 0;
     const numCorrect = parseInt(correct) || 0;
@@ -283,14 +283,14 @@ function ResultContent() {
         </div>
 
         {/* Manual Submit to Leaderboard */}
-{currentUser && score && (
-  <button
-    onClick={submitToLeaderboard}
-    className="group bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full mt-2"
-  >
-    📝 Submit Score to Leaderboard
-  </button>
-)}
+        {currentUser && score && (
+          <button
+            onClick={submitToLeaderboard}
+            className="group bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full mt-2"
+          >
+            📝 Submit Score to Leaderboard
+          </button>
+        )}
 
         {/* Submission Status Message */}
         {submissionStatus && (
