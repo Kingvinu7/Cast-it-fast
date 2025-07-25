@@ -1,16 +1,10 @@
-"use client";
-export const dynamic = "force-dynamic";
-
-import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useState, Suspense } from "react";
-import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import leaderboardContract from "@/lib/leaderboardContract";
-import { sdk } from "@farcaster/miniapp-sdk";
-
-// Separate component that uses useSearchParams
 function ResultContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  
+  // ADD OPTION 1 FIX - mounted state
+  const [mounted, setMounted] = useState(false);
+  
   const score = searchParams.get("score");
   const correct = searchParams.get("correct");
   const [showConfetti, setShowConfetti] = useState(false);
@@ -25,6 +19,16 @@ function ResultContent() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   });
+
+  // ADD MOUNTED CHECK useEffect
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // ADD EARLY RETURN FOR HYDRATION
+  if (!mounted) {
+    return <ResultPageLoading />;
+  }
 
   // Auto-connect wallet when component loads
   useEffect(() => {
