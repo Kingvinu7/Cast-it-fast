@@ -3,7 +3,8 @@ export const dynamic = "force-dynamic";
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
-import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceeipt } from "wagmi";
+import { ethers } from "ethers";
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
 
@@ -17,35 +18,31 @@ function ResultContent() {
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [submissionStatus, setSubmissionStatus] = useState("");
+  const [useWagmi, setUseWagmi] = useState(true);
 
-  // Wagmi hooks
-  const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
-    hash,
-  });
+  // Wagmi hooks (wrapped in try-catch)
+  let wagmiAccount, wagmiConnect, wagmiWriteContract, wagmiHash, wagmiIsPending, wagmiError, wagmiIsConfirming, wagmiIsConfirmed;
+  
+  try {
+    wagmiAccount = useAccount();
+    wagmiConnect = useConnect();
+    wagmiWriteContract = useWriteContract();
+    const wagmiReceipt = useWaitForTransactionReceeipt({
+      hash: wagmiWriteContract.data,
+    });
+    wagmiHash = wagmiWriteContract.data;
+    wagmiIsPending = wagmiWriteContract.isPending;
+    wagmiError = wagmiWriteContract.error;
+    wagmiIsConfirming = wagmiReceipt.isLoading;
+    wagmiIsConfirmed = wagmiReceipt.isSuccess;
+  } catch (error) {
+    console.log("Wagmi hooks not available, falling back to ethers.js");
+    setUseWagmi(false);
+  }
 
-  // Auto-connect wallet when component loads
-  useEffect(() => {
-    if (!isConnected && connectors.length > 0) {
-      connect({ connector: connectors[0] });
-    }
-  }, [isConnected, connectors, connect]);
-
-  // Handle transaction confirmation
-  useEffect(() => {
-    if (isConfirmed) {
-      setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
-    } else if (error) {
-      setSubmissionStatus("❌ Failed to submit score. Please try again.");
-      console.error("Transaction error:", error);
-    }
-  }, [isConfirmed, error]);
-
-  // Submit to leaderboard using Wagmi
-  const submitToLeaderboard = async () => {
-    if (!isConnected || !score || !currentUser?.displayName) {
+  // Fallback to ethers.js if Wagmi fails
+  const submitToLeaderboardEthers = async () => {
+    if (!window.ethereum || !score || !currentUser?.displayName) {
       setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
       return;
     }
@@ -53,7 +50,36 @@ function ResultContent() {
     try {
       setSubmissionStatus("📝 Submitting to leaderboard...");
       
-      writeContract({
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(
+        leaderboardContract.address,
+        leaderboardContract.abi,
+        signer
+      );
+
+      const tx = await contract.submitScore(currentUser.displayName, parseInt(score));
+      setSubmissionStatus("⏳ Confirming transaction...");
+      
+      await tx.wait();
+      setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
+    } catch (err) {
+      console.error("Submission failed:", err);
+      setSubmissionStatus("❌ Failed to submit score. Please try again.");
+    }
+  };
+
+  // Wagmi submission function
+  const submitToLeaderboardWagmi = async () => {
+    if (!wagmiAccount?.isConnected || !score || !currentUser?.displayName) {
+      setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
+      return;
+    }
+
+    try {
+      setSubmissionStatus("📝 Submitting to leaderboard...");
+      
+      wagmiWriteContract.writeContract({
         address: leaderboardContract.address,
         abi: leaderboardContract.abi,
         functionName: 'submitScore',
@@ -64,6 +90,30 @@ function ResultContent() {
       setSubmissionStatus("❌ Failed to submit score. Please try again.");
     }
   };
+
+  // Choose submission method
+  const submitToLeaderboard = useWagmi && wagmiAccount ? submitToLeaderboardWagmi : submitToLeaderboardEthers;
+
+  // Auto-connect wallet when component loads (only for Wagmi)
+  useEffect(() => {
+    if (useWagmi && wagmiConnect && !wagmiAccount?.isConnected && wagmiConnect.connectors.length > 0) {
+      try {
+        wagmiConnect.connect({ connector: wagmiConnect.connectors[0] });
+      } catch (error) {
+        console.log("Auto-connect failed, user will need to connect manually");
+      }
+    }
+  }, [useWagmi, wagmiAccount?.isConnected, wagmiConnect]);
+
+  // Handle Wagmi transaction confirmation
+  useEffect(() => {
+    if (useWagmi && wagmiIsConfirmed) {
+      setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
+    } else if (useWagmi && wagmiError) {
+      setSubmissionStatus("❌ Failed to submit score. Please try again.");
+      console.error("Transaction error:", wagmiError);
+    }
+  }, [useWagmi, wagmiIsConfirmed, wagmiError]);
 
   useEffect(() => {
     // Initialize SDK and get user context
@@ -94,7 +144,7 @@ function ResultContent() {
     setShowConfetti(true);
     setTimeout(() => setAnimateScore(true), 500);
 
-    // Save game history - same logic as before
+    // Save game history logic (same as before)
     if (!score || !correct) return;
 
     const numScore = parseInt(score) || 0;
@@ -177,17 +227,27 @@ function ResultContent() {
     window.open(farcasterUrl, '_blank', 'noopener,noreferrer');
   };
 
+  // Get connection status
+  const isConnected = useWagmi ? wagmiAccount?.isConnected : !!window.ethereum;
+  const address = useWagmi ? wagmiAccount?.address : null;
+
   // Get button text and status for leaderboard submission
   const getLeaderboardButtonText = () => {
     if (!isConnected) return "🔌 Connect Wallet First";
-    if (isPending) return "📝 Preparing Transaction...";
-    if (isConfirming) return "⏳ Confirming Transaction...";
-    if (isConfirmed) return "✅ Score Submitted!";
+    if (useWagmi && wagmiIsPending) return "📝 Preparing Transaction...";
+    if (useWagmi && wagmiIsConfirming) return "⏳ Confirming Transaction...";
+    if (useWagmi && wagmiIsConfirmed) return "✅ Score Submitted!";
+    if (submissionStatus.includes("Confirming")) return "⏳ Confirming Transaction...";
+    if (submissionStatus.includes("🎉")) return "✅ Score Submitted!";
     return "📝 Submit Score to Leaderboard";
   };
 
   const isLeaderboardButtonDisabled = () => {
-    return !isConnected || !currentUser || !score || isPending || isConfirming || isConfirmed;
+    if (!currentUser || !score) return true;
+    if (useWagmi) {
+      return !isConnected || wagmiIsPending || wagmiIsConfirming || wagmiIsConfirmed;
+    }
+    return !window.ethereum || submissionStatus.includes("🎉") || submissionStatus.includes("Confirming");
   };
 
   return (
@@ -270,8 +330,14 @@ function ResultContent() {
           </div>
         </div>
 
-        {/* Wallet Connection Status */}
-        {!isConnected && (
+        {/* Connection Status */}
+        {!useWagmi && (
+          <div className="mb-3 text-sm text-blue-400 bg-blue-400/10 rounded-lg p-2 border border-blue-400/20">
+            🔄 Using direct wallet connection
+          </div>
+        )}
+
+        {useWagmi && !isConnected && (
           <div className="mb-3 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">
             🔌 Wallet connecting... Please wait
           </div>
@@ -283,7 +349,7 @@ function ResultContent() {
           </div>
         )}
 
-        {/* Action Buttons - Ultra Compact */}
+        {/* Action Buttons */}
         <div className={`space-y-1.5 transform transition-all duration-1000 delay-1000 ${
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
@@ -296,7 +362,6 @@ function ResultContent() {
             <span className="ml-2">↻</span>
           </button>
           
-          {/* Farcaster Share Button */}
           <button
             onClick={shareTofarcaster}
             className="group bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
@@ -316,7 +381,7 @@ function ResultContent() {
           </button>
         </div>
 
-        {/* Leaderboard Submit Button with Enhanced Status */}
+        {/* Leaderboard Submit Button */}
         {currentUser && score && (
           <button
             onClick={submitToLeaderboard}
@@ -331,7 +396,7 @@ function ResultContent() {
           </button>
         )}
 
-        {/* Enhanced Submission Status Message */}
+        {/* Submission Status Message */}
         {submissionStatus && (
           <div className={`mt-3 text-sm font-medium rounded-lg p-2 ${
             submissionStatus.includes('🎉') ? 'text-green-400 bg-green-400/10 border border-green-400/20' :
@@ -343,13 +408,13 @@ function ResultContent() {
         )}
 
         {/* Transaction Hash Display */}
-        {hash && (
+        {wagmiHash && (
           <div className="mt-2 text-xs text-gray-400 break-all">
-            Transaction: {hash.slice(0, 10)}...{hash.slice(-8)}
+            Transaction: {wagmiHash.slice(0, 10)}...{wagmiHash.slice(-8)}
           </div>
         )}
 
-        {/* Share Score - Ultra Compact */}
+        {/* Share Score */}
         <div className={`mt-2 opacity-60 transform transition-all duration-1000 delay-1200 ${
           animateScore ? 'translate-y-0 opacity-60' : 'translate-y-10 opacity-0'
         }`}>
@@ -390,4 +455,4 @@ export default function ResultPage() {
       <ResultContent />
     </Suspense>
   );
-}
+  }
