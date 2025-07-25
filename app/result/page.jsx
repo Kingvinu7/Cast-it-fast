@@ -71,7 +71,7 @@ useEffect(() => {
 const initializeUser = async () => {
 try {
 await sdk.actions.ready();
-const context = await sdk.context;
+const context = sdk.context;
 
 if (context?.user) {  
       console.log("🧠 Farcaster User Context:", context.user);  
