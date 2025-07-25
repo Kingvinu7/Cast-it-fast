@@ -16,6 +16,7 @@ function ResultContent() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [submissionStatus, setSubmissionStatus] = useState("");
 
   // Add submit function
   const submitToLeaderboard = async () => {
@@ -35,10 +36,11 @@ function ResultContent() {
 
       const tx = await contract.submitScore(currentUser.displayName, parseInt(score));
       await tx.wait();
-
       console.log("Score submitted!");
+      setSubmissionStatus("🎉 Score successfully submitted!");
     } catch (err) {
       console.error("Submission failed:", err);
+      setSubmissionStatus("❌ Failed to submit score. Please try again.");
     }
   };
 
@@ -284,6 +286,13 @@ function ResultContent() {
             <span className="ml-2">→</span>
           </button>
         </div>
+
+        {/* Submission Status Message */}
+        {submissionStatus && (
+          <div className="mt-3 text-sm text-green-400 font-medium">
+            {submissionStatus}
+          </div>
+        )}
 
         {/* Share Score - Ultra Compact */}
         <div className={`mt-2 opacity-60 transform transition-all duration-1000 delay-1200 ${
