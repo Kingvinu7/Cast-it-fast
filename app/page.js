@@ -58,7 +58,15 @@ export default function HomePage() {
         className="absolute top-4 right-4 bg-white/10 backdrop-blur-md px-4 py-2 rounded-lg text-sm font-bold text-white hover:bg-white/20 transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 z-50 touch-manipulation"
       >
         📜 History
-      </button>
+      </button> 
+
+  {/* Leaderboard Button - Top Left */}
+<button
+  onClick={() => router.push("/leaderboard")}
+  className="absolute top-4 left-4 bg-white/10 backdrop-blur-md px-4 py-2 rounded-lg text-sm font-bold text-white hover:bg-white/20 transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 z-50 touch-manipulation"
+>
+  🏆 Leaderboard
+</button>
 
       {/* Floating background emojis */}
       <div className="absolute inset-0 overflow-hidden z-0">
