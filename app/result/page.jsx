@@ -59,9 +59,12 @@ try {
     functionName: 'submitScore',  
     args: [currentUser.displayName, parseInt(score)],  
   });  
-} catch (err) {  
-  console.error("Submission failed:", err);  
-  setSubmissionStatus("❌ Failed to submit score. Please try again.");  
+} catch (err) {
+  console.error("Submission failed:", err);
+  if (err?.message) {
+    setSubmissionStatus(`❌ ${err.message}`);
+  } else {
+    setSubmissionStatus("❌ Failed to submit score. Please try again.");
 }
 
 };
