@@ -1,3 +1,7 @@
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import { WagmiWrapper } from "@/components/WagmiWrapper";
+
 export const metadata = {
   title: "Cast-it-Fast",
   description: "Fast-paced trivia game on Farcaster, made by vinu07",
@@ -16,9 +20,6 @@ export const metadata = {
   },
 };
 
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -35,7 +36,9 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <WagmiWrapper>
+          {children}
+        </WagmiWrapper>
       </body>
     </html>
   );
