@@ -17,13 +17,15 @@ export default function LeaderboardPage() {
         const results = [];
 
         for (let i = 0; i < total; i++) {
-          const [name, user, score] = await contract.getEntry(i);
-          results.push({
-            displayName: name,
-            address: user,
-            score: parseInt(score.toString()),
-          });
-        }
+  const [nameRaw, user, score] = await contract.getEntry(i);
+  const name = await nameRaw;
+
+  results.push({
+    displayName: name,
+    address: user,
+    score: parseInt(score.toString()),
+  });
+ }
 
         // Sort descending by score
         const sorted = results.sort((a, b) => b.score - a.score);
