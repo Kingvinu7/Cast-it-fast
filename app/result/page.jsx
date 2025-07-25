@@ -53,12 +53,14 @@ return;
 try {  
   setSubmissionStatus("📝 Submitting to leaderboard...");  
     
-  writeContract({  
-    address: leaderboardContract.address,  
-    abi: leaderboardContract.abi,  
-    functionName: 'submitScore',  
-    args: [String(currentUser.displayName), parseInt(score)],  
-  });  
+  const displayName = currentUser?.displayName?.toString?.() ?? "";
+
+writeContract({
+  address: leaderboardContract.address,
+  abi: leaderboardContract.abi,
+  functionName: 'submitScore',
+  args: [displayName, parseInt(score)],
+});
 } catch (err) {
   console.error("Submission failed:", err);
   if (err?.message) {
