@@ -65,8 +65,9 @@ try {
     setSubmissionStatus(`❌ ${err.message}`);
   } else {
     setSubmissionStatus("❌ Failed to submit score. Please try again.");
+ }
 }
-
+  
 };
 
 useEffect(() => {
