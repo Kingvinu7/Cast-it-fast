@@ -158,7 +158,7 @@ function ResultContent() {
       setSubmissionStatus("📱 Submitting to blockchain...");
       
       const payload = {
-        displayName: currentUser.displayName.toString(),
+        displayName: String(currentUser.displayName || currentUser.username || `User_${currentUser.fid}`),
         score: parseInt(score),
         fid: currentUser.fid,
         platform: 'mobile'
