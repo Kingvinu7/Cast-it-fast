@@ -114,18 +114,21 @@ function ResultContent() {
 
   // Mobile submission function
   const submitToLeaderboardMobile = async () => {
-    if (!score || !currentUser) {
-      setSubmissionStatus("❌ Missing required data");
+    if (!score) {
+      setSubmissionStatus("❌ No score available");
       return;
     }
 
     try {
       setSubmissionStatus("📱 Submitting to blockchain...");
       
+      // Use fallback name if currentUser not available
+      const userName = currentUser?.displayName || currentUser?.username || `User_${currentUser?.fid || 'guest'}`;
+      
       const payload = {
-        displayName: currentUser.displayName || `User_${currentUser.fid}`,
+        displayName: userName,
         score: parseInt(score),
-        fid: currentUser.fid,
+        fid: currentUser?.fid || 0,
         platform: 'mobile'
       };
 
@@ -156,7 +159,7 @@ function ResultContent() {
       try {
         localStorage.setItem("lastScore", JSON.stringify({
           score: parseInt(score),
-          user: currentUser.displayName || `User_${currentUser.fid}`,
+          user: currentUser?.displayName || `User_${currentUser?.fid || 'guest'}`,
           timestamp: Date.now()
         }));
       } catch (e) {
@@ -296,9 +299,9 @@ function ResultContent() {
 
   const isLeaderboardButtonDisabled = () => {
     if (isMobileFarcaster) {
-      return !currentUser || !score || submissionStatus.includes("🎉");
+      return !score || submissionStatus.includes("🎉");
     }
-    return !isConnected || !currentUser || !score || isPending || isConfirming || isConfirmed;
+    return !isConnected || !score || isPending || isConfirming || isConfirmed;
   };
 
   return (
@@ -329,6 +332,7 @@ function ResultContent() {
           <div className="mb-2 text-xs bg-black/50 backdrop-blur-sm rounded-lg p-2 border border-white/20 text-left">
             <div className="font-bold text-yellow-400 mb-1">🔧 Info:</div>
             <div className="text-xs">{debugInfo}</div>
+            <div className="text-xs mt-1">Score: {score || 'None'} | User: {currentUser ? 'Yes' : 'No'}</div>
             <button 
               onClick={() => setIsMobileFarcaster(!isMobileFarcaster)}
               className="mt-1 px-2 py-0.5 bg-yellow-600 text-black text-xs rounded w-full"
@@ -452,8 +456,8 @@ function ResultContent() {
           </button>  
         </div>  
 
-        {/* Leaderboard Submit Button */}  
-        {currentUser && score && (  
+        {/* Leaderboard Submit Button - Always show if we have a score */}  
+        {score && (  
           <button  
             onClick={submitToLeaderboard}  
             disabled={isLeaderboardButtonDisabled()}  
