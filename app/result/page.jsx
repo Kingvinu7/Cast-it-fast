@@ -69,8 +69,7 @@ if (!isConnected) {
 // Proceed with submission
 try {  
   setSubmissionStatus("📝 Submitting to leaderboard...");  
-    
-  const displayName = currentUser?.displayName?.toString?.() ?? "";
+    const displayName = currentUser?.displayName?.toString?.() ?? "";
   
 writeContract({
   address: leaderboardContract.address,
