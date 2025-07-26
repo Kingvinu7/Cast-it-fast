@@ -7,48 +7,35 @@ import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt 
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
 
-// Detect if running in Farcaster environment using SDK context
-const detectFarcasterEnvironment = async () => {
+// Simple and reliable Farcaster detection
+const detectFarcasterEnvironment = () => {
   const debug = { ...debugInfo };
   
   try {
     debug.userAgent = typeof window !== 'undefined' ? window.navigator.userAgent : 'Server';
     debug.hasSDK = typeof sdk !== 'undefined';
     
-    await sdk.actions.ready();
-    const context = sdk.context;
+    // Check user agent first - most reliable for mobile
+    const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(debug.userAgent);
+    const hasFarcaster = debug.userAgent.includes('Farcaster') || debug.userAgent.includes('Warpcast');
     
-    debug.hasContext = !!context;
-    debug.hasUser = !!context?.user;
-    debug.hasClient = !!context?.client;
-    debug.clientInfo = context?.client || 'No client info';
+    // If mobile OR has user context from previous checks, treat as Farcaster
+    const hasPreviousUserContext = currentUser !== null;
     
-    // Check if we have SDK context (indicates we're in a Farcaster client)
-    if (context?.client) {
-      debug.environmentDetected = `Farcaster Client: ${context.client}`;
+    if (isMobile || hasFarcaster || hasPreviousUserContext) {
+      debug.environmentDetected = `Farcaster Mobile detected - Mobile: ${isMobile}, HasFC: ${hasFarcaster}, HasUser: ${hasPreviousUserContext}`;
       setDebugInfo(debug);
       return true;
     }
     
-    // Fallback: check user agent as secondary method
-    if (typeof window !== 'undefined') {
-      const userAgent = window.navigator.userAgent;
-      const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-      const hasFarcaster = userAgent.includes('Farcaster') || userAgent.includes('Warpcast');
-      
-      debug.environmentDetected = `UserAgent check - Mobile: ${isMobile}, HasFarcaster: ${hasFarcaster}`;
-      setDebugInfo(debug);
-      return hasFarcaster || (isMobile && context?.user);
-    }
-    
-    debug.environmentDetected = 'Web environment detected';
+    debug.environmentDetected = 'Desktop Web detected';
     setDebugInfo(debug);
     return false;
   } catch (error) {
-    debug.errors.push(`SDK Error: ${error.message}`);
-    debug.environmentDetected = 'SDK not available, assuming web';
+    debug.errors.push(`Detection Error: ${error.message}`);
+    debug.environmentDetected = 'Error in detection, assuming mobile for safety';
     setDebugInfo(debug);
-    return false;
+    return true; // Assume mobile to be safe
   }
 };
 
@@ -88,14 +75,14 @@ function ResultContent() {
 
   // Detect environment on mount
   useEffect(() => {
-    const checkEnvironment = async () => {
-      const isFarcasterClient = await detectFarcasterEnvironment();
+    // Simple detection that runs after user context is potentially available
+    const timer = setTimeout(() => {
+      const isFarcasterClient = detectFarcasterEnvironment();
       setIsMobileFarcaster(isFarcasterClient);
-      console.log("Environment detected:", isFarcasterClient ? "Farcaster Client" : "Web/Desktop");
-    };
+    }, 500); // Small delay to let user context load
     
-    checkEnvironment();
-  }, []);
+    return () => clearTimeout(timer);
+  }, [currentUser]); // Re-run when currentUser changes
 
   // Initialize Farcaster wallet for mobile
   useEffect(() => {
@@ -471,6 +458,13 @@ function ResultContent() {
                   ))}
                 </div>
               )}
+              {/* Manual Override Button */}
+              <button 
+                onClick={() => setIsMobileFarcaster(!isMobileFarcaster)}
+                className="mt-2 px-2 py-1 bg-yellow-600 text-black text-xs rounded"
+              >
+                Toggle: Force {isMobileFarcaster ? 'Web' : 'Mobile'} Mode
+              </button>
             </div>
           </div>
         )}
@@ -524,8 +518,8 @@ function ResultContent() {
             <div className="text-xs font-bold">15</div>  
           </div>  
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">  
-            <div className="text-sm mb-0.5">⭐</div>  
-            <div className="text-xs opacity-80">Accuracy</div>
+            <div className="text-sm mb-0.5">⭐</div>
+            <div className="text-xs opacity-80">Accuracy</div>  
             <div className="text-xs font-bold">{Math.round(((parseInt(correct) || 0) / 15) * 100)}%</div>  
           </div>  
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">  
@@ -665,4 +659,4 @@ export default function ResultPage() {
     </Suspense>
   );
 }
-           
+   
