@@ -52,7 +52,6 @@ function ResultContent() {
   const [isMobileFarcaster, setIsMobileFarcaster] = useState(false);
   const [farcasterWallet, setFarcasterWallet] = useState(null);
   
-  // Debug information state
   const [debugInfo, setDebugInfo] = useState({
     userAgent: '',
     hasSDK: false,
@@ -62,7 +61,8 @@ function ResultContent() {
     clientInfo: '',
     environmentDetected: '',
     wagmiSkipped: false,
-    errors: []
+    errors: [],
+    apiLogs: [] // Add API debugging logs
   });
 
   // Wagmi hooks (only used for web)
@@ -155,53 +155,95 @@ function ResultContent() {
     }
 
     try {
-      setSubmissionStatus("📱 Submitting score...");
+      setSubmissionStatus("📱 Submitting to blockchain...");
       
-      // Server-side submission approach (recommended for mobile)
+      const payload = {
+        displayName: currentUser.displayName.toString(),
+        score: parseInt(score),
+        fid: currentUser.fid,
+        platform: 'mobile'
+      };
+      
+      // Log the request for debugging
+      console.log("Making API request:", payload);
+      
+      // Add to debug logs for mobile viewing
+      const newDebug = { ...debugInfo };
+      newDebug.apiLogs.push(`Sending: ${JSON.stringify(payload).slice(0, 50)}...`);
+      setDebugInfo(newDebug);
+      
       const response = await fetch('/api/submit-score', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          displayName: currentUser.displayName.toString(),
-          score: parseInt(score),
-          fid: currentUser.fid,
-          platform: 'mobile'
-        })
+        body: JSON.stringify(payload)
       });
+
+      console.log("API Response status:", response.status);
+      console.log("API Response ok:", response.ok);
+      
+      // Add response to debug logs
+      const responseDebug = { ...debugInfo };
+      responseDebug.apiLogs.push(`Response: ${response.status} ${response.ok ? 'OK' : 'ERROR'}`);
+      setDebugInfo(responseDebug);
 
       if (response.ok) {
         const result = await response.json();
-        setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
-        console.log("Mobile submission successful:", result);
+        console.log("API Success result:", result);
+        setSubmissionStatus("🎉 Score submitted to blockchain!");
+        
+        // Show transaction details
+        if (result.transactionHash) {
+          setTimeout(() => {
+            setSubmissionStatus(`✅ Blockchain confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
+          }, 2000);
+        }
       } else {
-        throw new Error(`Server error: ${response.status}`);
+        const errorText = await response.text();
+        console.error("API Error response:", errorText);
+        throw new Error(`API Error ${response.status}: ${errorText}`);
       }
       
     } catch (err) {
-      console.error("Mobile submission failed:", err);
+      console.error("Full error details:", err);
       
-      // Fallback to local storage and display success message
+      // Show specific error types
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        setSubmissionStatus("🌐 Network connection failed - check internet");
+      } else if (err.message.includes('API Error 500')) {
+        setSubmissionStatus("⚠️ Blockchain error - server issue");
+      } else if (err.message.includes('API Error 400')) {
+        setSubmissionStatus("❌ Invalid data - please try again");
+      } else {
+        setSubmissionStatus(`❌ Failed: ${err.message.slice(0, 30)}...`);
+      }
+      
+      // Still save locally as backup, but make it clear this is a fallback
       try {
         const leaderboardData = {
           displayName: currentUser.displayName.toString(),
           score: parseInt(score),
           fid: currentUser.fid,
           timestamp: new Date().toISOString(),
-          platform: 'mobile'
+          platform: 'mobile',
+          error: err.message,
+          originalStatus: submissionStatus
         };
         
         const existingLeaderboard = JSON.parse(localStorage.getItem("pendingLeaderboardEntries") || "[]");
         existingLeaderboard.push(leaderboardData);
         localStorage.setItem("pendingLeaderboardEntries", JSON.stringify(existingLeaderboard));
         
-        setSubmissionStatus("📱 Score saved locally! Will sync when possible.");
-        console.log("Score saved to local storage:", leaderboardData);
+        console.log("Backup saved to localStorage:", leaderboardData);
+        
+        // Update status to show it's backed up
+        setTimeout(() => {
+          setSubmissionStatus(submissionStatus + " (saved as backup)");
+        }, 3000);
         
       } catch (localError) {
-        console.error("Local storage fallback failed:", localError);
-        setSubmissionStatus(`❌ Unable to submit score. Please try again later.`);
+        console.error("Backup save failed:", localError);
       }
     }
   };
@@ -434,38 +476,30 @@ function ResultContent() {
 
       <div className="relative z-10 text-center max-w-sm mx-auto w-full flex flex-col justify-center min-h-screen py-2">  
           
-        {/* Debug Panel - Only show in development or when needed */}
-        {(debugInfo.errors.length > 0 || debugInfo.environmentDetected) && (
-          <div className="mb-4 text-xs bg-black/50 backdrop-blur-sm rounded-lg p-3 border border-white/20 text-left">
-            <div className="font-bold text-yellow-400 mb-2">🔧 Debug Info:</div>
-            <div className="space-y-1">
-              <div>Environment: {debugInfo.environmentDetected}</div>
-              <div>SDK: {debugInfo.hasSDK ? '✅' : '❌'}</div>
-              <div>Context: {debugInfo.hasContext ? '✅' : '❌'}</div>
-              <div>User: {debugInfo.hasUser ? '✅' : '❌'}</div>
-              <div>Client: {debugInfo.hasClient ? '✅' : '❌'}</div>
-              <div>Wagmi Skipped: {debugInfo.wagmiSkipped ? '✅' : '❌'}</div>
-              {debugInfo.userAgent && (
-                <div className="text-xs opacity-70 break-all">
-                  UA: {debugInfo.userAgent.substring(0, 50)}...
-                </div>
-              )}
-              {debugInfo.errors.length > 0 && (
-                <div className="mt-2">
-                  <div className="font-bold text-red-400">Logs:</div>
-                  {debugInfo.errors.slice(-3).map((error, i) => (
-                    <div key={i} className="text-xs opacity-80">{error}</div>
-                  ))}
-                </div>
-              )}
-              {/* Manual Override Button */}
-              <button 
-                onClick={() => setIsMobileFarcaster(!isMobileFarcaster)}
-                className="mt-2 px-2 py-1 bg-yellow-600 text-black text-xs rounded"
-              >
-                Toggle: Force {isMobileFarcaster ? 'Web' : 'Mobile'} Mode
-              </button>
+        {/* Compact Debug Panel for mobile */}
+        {(debugInfo.errors.length > 0 || debugInfo.environmentDetected || debugInfo.apiLogs.length > 0) && (
+          <div className="mb-2 text-xs bg-black/50 backdrop-blur-sm rounded-lg p-2 border border-white/20 text-left">
+            <div className="font-bold text-yellow-400 mb-1">🔧 Debug:</div>
+            <div className="grid grid-cols-2 gap-1 text-xs">
+              <div>Wagmi: {debugInfo.wagmiSkipped ? '✅ Skip' : '❌ Run'}</div>
+              <div>Env: {isMobileFarcaster ? '📱 Mobile' : '🌐 Web'}</div>
             </div>
+            {/* Show API logs if any */}
+            {debugInfo.apiLogs.length > 0 && (
+              <div className="mt-1 text-xs opacity-80">
+                <div className="font-bold text-blue-400">API:</div>
+                {debugInfo.apiLogs.slice(-2).map((log, i) => (
+                  <div key={i} className="text-xs">{log}</div>
+                ))}
+              </div>
+            )}
+            {/* Compact Manual Override Button */}
+            <button 
+              onClick={() => setIsMobileFarcaster(!isMobileFarcaster)}
+              className="mt-1 px-2 py-0.5 bg-yellow-600 text-black text-xs rounded w-full"
+            >
+              Toggle Mode
+            </button>
           </div>
         )}
 
@@ -518,7 +552,7 @@ function ResultContent() {
             <div className="text-xs font-bold">15</div>  
           </div>  
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">  
-            <div className="text-sm mb-0.5">⭐</div>
+            <div className="text-sm mb-0.5">⭐</div>  
             <div className="text-xs opacity-80">Accuracy</div>  
             <div className="text-xs font-bold">{Math.round(((parseInt(correct) || 0) / 15) * 100)}%</div>  
           </div>  
@@ -659,4 +693,3 @@ export default function ResultPage() {
     </Suspense>
   );
 }
-   
