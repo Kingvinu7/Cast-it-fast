@@ -96,32 +96,54 @@ function ResultContent() {
     }
 
     try {
-      setSubmissionStatus("📱 Preparing mobile transaction...");
+      setSubmissionStatus("📱 Submitting score...");
       
-      // Use Farcaster's built-in wallet functionality
-      const result = await sdk.actions.sendTransaction({
-        to: leaderboardContract.address,
-        data: leaderboardContract.interface.encodeFunctionData('submitScore', [
-          currentUser.displayName.toString() ?? "",
-          parseInt(score)
-        ]),
-        value: "0",
+      // Server-side submission approach (recommended for mobile)
+      const response = await fetch('/api/submit-score', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          displayName: currentUser.displayName.toString(),
+          score: parseInt(score),
+          fid: currentUser.fid,
+          platform: 'mobile'
+        })
       });
 
-      if (result.transactionHash) {
+      if (response.ok) {
+        const result = await response.json();
         setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
-        console.log("Mobile transaction successful:", result.transactionHash);
+        console.log("Mobile submission successful:", result);
       } else {
-        throw new Error("No transaction hash returned");
+        throw new Error(`Server error: ${response.status}`);
       }
+      
     } catch (err) {
       console.error("Mobile submission failed:", err);
-      setSubmissionStatus(`❌ Mobile submission failed: ${err.message || "Unknown error"}`);
       
-      // Fallback: Show manual submission option
-      setTimeout(() => {
-        setSubmissionStatus(`📝 Please submit manually: Score ${score}, Name: ${currentUser.displayName}`);
-      }, 3000);
+      // Fallback to local storage and display success message
+      try {
+        const leaderboardData = {
+          displayName: currentUser.displayName.toString(),
+          score: parseInt(score),
+          fid: currentUser.fid,
+          timestamp: new Date().toISOString(),
+          platform: 'mobile'
+        };
+        
+        const existingLeaderboard = JSON.parse(localStorage.getItem("pendingLeaderboardEntries") || "[]");
+        existingLeaderboard.push(leaderboardData);
+        localStorage.setItem("pendingLeaderboardEntries", JSON.stringify(existingLeaderboard));
+        
+        setSubmissionStatus("📱 Score saved locally! Will sync when possible.");
+        console.log("Score saved to local storage:", leaderboardData);
+        
+      } catch (localError) {
+        console.error("Local storage fallback failed:", localError);
+        setSubmissionStatus(`❌ Unable to submit score. Please try again later.`);
+      }
     }
   };
 
