@@ -70,8 +70,7 @@ if (!isConnected) {
 try {  
   setSubmissionStatus("📝 Submitting to leaderboard...");  
     
-  const displayName = currentUser?.displayName?.toString?.() ?? "";
-
+  
 writeContract({
   address: leaderboardContract.address,
   abi: leaderboardContract.abi,
