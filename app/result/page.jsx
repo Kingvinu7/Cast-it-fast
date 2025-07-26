@@ -7,11 +7,49 @@ import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt 
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
 
-// Detect if running in Farcaster mobile environment
-const isFarcasterMobile = () => {
-  if (typeof window === 'undefined') return false;
-  const userAgent = window.navigator.userAgent;
-  return userAgent.includes('Farcaster') || userAgent.includes('Warpcast');
+// Detect if running in Farcaster environment using SDK context
+const detectFarcasterEnvironment = async () => {
+  const debug = { ...debugInfo };
+  
+  try {
+    debug.userAgent = typeof window !== 'undefined' ? window.navigator.userAgent : 'Server';
+    debug.hasSDK = typeof sdk !== 'undefined';
+    
+    await sdk.actions.ready();
+    const context = sdk.context;
+    
+    debug.hasContext = !!context;
+    debug.hasUser = !!context?.user;
+    debug.hasClient = !!context?.client;
+    debug.clientInfo = context?.client || 'No client info';
+    
+    // Check if we have SDK context (indicates we're in a Farcaster client)
+    if (context?.client) {
+      debug.environmentDetected = `Farcaster Client: ${context.client}`;
+      setDebugInfo(debug);
+      return true;
+    }
+    
+    // Fallback: check user agent as secondary method
+    if (typeof window !== 'undefined') {
+      const userAgent = window.navigator.userAgent;
+      const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+      const hasFarcaster = userAgent.includes('Farcaster') || userAgent.includes('Warpcast');
+      
+      debug.environmentDetected = `UserAgent check - Mobile: ${isMobile}, HasFarcaster: ${hasFarcaster}`;
+      setDebugInfo(debug);
+      return hasFarcaster || (isMobile && context?.user);
+    }
+    
+    debug.environmentDetected = 'Web environment detected';
+    setDebugInfo(debug);
+    return false;
+  } catch (error) {
+    debug.errors.push(`SDK Error: ${error.message}`);
+    debug.environmentDetected = 'SDK not available, assuming web';
+    setDebugInfo(debug);
+    return false;
+  }
 };
 
 // Separate component that uses useSearchParams
@@ -26,6 +64,19 @@ function ResultContent() {
   const [submissionStatus, setSubmissionStatus] = useState("");
   const [isMobileFarcaster, setIsMobileFarcaster] = useState(false);
   const [farcasterWallet, setFarcasterWallet] = useState(null);
+  
+  // Debug information state
+  const [debugInfo, setDebugInfo] = useState({
+    userAgent: '',
+    hasSDK: false,
+    hasContext: false,
+    hasUser: false,
+    hasClient: false,
+    clientInfo: '',
+    environmentDetected: '',
+    wagmiSkipped: false,
+    errors: []
+  });
 
   // Wagmi hooks (only used for web)
   const { address, isConnected } = useAccount();
@@ -37,9 +88,13 @@ function ResultContent() {
 
   // Detect environment on mount
   useEffect(() => {
-    const mobile = isFarcasterMobile();
-    setIsMobileFarcaster(mobile);
-    console.log("Environment detected:", mobile ? "Farcaster Mobile" : "Web/Desktop");
+    const checkEnvironment = async () => {
+      const isFarcasterClient = await detectFarcasterEnvironment();
+      setIsMobileFarcaster(isFarcasterClient);
+      console.log("Environment detected:", isFarcasterClient ? "Farcaster Client" : "Web/Desktop");
+    };
+    
+    checkEnvironment();
   }, []);
 
   // Initialize Farcaster wallet for mobile
@@ -67,12 +122,29 @@ function ResultContent() {
 
   // Handle wagmi connection for web only
   useEffect(() => {
-    if (isMobileFarcaster) return; // Skip wagmi for mobile Farcaster
+    const debug = { ...debugInfo };
+    
+    if (isMobileFarcaster) {
+      debug.wagmiSkipped = true;
+      debug.environmentDetected += " - Wagmi SKIPPED";
+      setDebugInfo(debug);
+      return; // Skip wagmi for Farcaster clients
+    }
     
     // Auto-connect for web users
     if (!isConnected && connectors.length > 0) {
+      debug.wagmiSkipped = false;
+      debug.environmentDetected += " - Wagmi CONNECTING";
+      setDebugInfo(debug);
+      
       const timer = setTimeout(() => {
-        connect({ connector: connectors[0] });
+        try {
+          connect({ connector: connectors[0] });
+        } catch (error) {
+          const newDebug = { ...debugInfo };
+          newDebug.errors.push(`Wagmi Error: ${error.message}`);
+          setDebugInfo(newDebug);
+        }
       }, 1000);
       return () => clearTimeout(timer);
     }
@@ -200,15 +272,23 @@ function ResultContent() {
     }
   };
 
-  // Initialize user context
+  // Initialize user context with better error handling
   useEffect(() => {
     const initializeUser = async () => {
+      const debug = { ...debugInfo };
+      
       try {
+        debug.errors.push("Initializing SDK...");
         await sdk.actions.ready();
         const context = sdk.context;
+        
+        debug.hasContext = !!context;
+        debug.hasUser = !!context?.user;
+        debug.hasClient = !!context?.client;
+        debug.clientInfo = context?.client || 'No client';
 
         if (context?.user) {
-          console.log("🧠 Farcaster User Context:", context.user);
+          debug.errors.push("User context found!");
 
           let displayName;
           try {
@@ -223,9 +303,14 @@ function ResultContent() {
             displayName,
             pfpUrl: context.user.pfpUrl,
           });
+        } else {
+          debug.errors.push("No user context available");
         }
+        
+        setDebugInfo(debug);
       } catch (error) {  
-        console.error("Farcaster SDK initialization failed:", error);  
+        debug.errors.push(`SDK Init Failed: ${error.message}`);
+        setDebugInfo(debug);
       }  
     };  
 
@@ -362,9 +447,37 @@ function ResultContent() {
 
       <div className="relative z-10 text-center max-w-sm mx-auto w-full flex flex-col justify-center min-h-screen py-2">  
           
+        {/* Debug Panel - Only show in development or when needed */}
+        {(debugInfo.errors.length > 0 || debugInfo.environmentDetected) && (
+          <div className="mb-4 text-xs bg-black/50 backdrop-blur-sm rounded-lg p-3 border border-white/20 text-left">
+            <div className="font-bold text-yellow-400 mb-2">🔧 Debug Info:</div>
+            <div className="space-y-1">
+              <div>Environment: {debugInfo.environmentDetected}</div>
+              <div>SDK: {debugInfo.hasSDK ? '✅' : '❌'}</div>
+              <div>Context: {debugInfo.hasContext ? '✅' : '❌'}</div>
+              <div>User: {debugInfo.hasUser ? '✅' : '❌'}</div>
+              <div>Client: {debugInfo.hasClient ? '✅' : '❌'}</div>
+              <div>Wagmi Skipped: {debugInfo.wagmiSkipped ? '✅' : '❌'}</div>
+              {debugInfo.userAgent && (
+                <div className="text-xs opacity-70 break-all">
+                  UA: {debugInfo.userAgent.substring(0, 50)}...
+                </div>
+              )}
+              {debugInfo.errors.length > 0 && (
+                <div className="mt-2">
+                  <div className="font-bold text-red-400">Logs:</div>
+                  {debugInfo.errors.slice(-3).map((error, i) => (
+                    <div key={i} className="text-xs opacity-80">{error}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Environment Indicator */}
         <div className="mb-2 text-xs opacity-60">
-          {isMobileFarcaster ? "📱 Farcaster Mobile" : "🌐 Web Version"}
+          {isMobileFarcaster ? "📱 Farcaster Client" : "🌐 Web Version"}
         </div>
 
         {/* Main Trophy Animation */}  
@@ -412,7 +525,7 @@ function ResultContent() {
           </div>  
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">  
             <div className="text-sm mb-0.5">⭐</div>  
-            <div className="text-xs opacity-80">Accuracy</div>  
+            <div className="text-xs opacity-80">Accuracy</div>
             <div className="text-xs font-bold">{Math.round(((parseInt(correct) || 0) / 15) * 100)}%</div>  
           </div>  
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">  
@@ -440,7 +553,7 @@ function ResultContent() {
         {/* Mobile Wallet Status */}
         {isMobileFarcaster && (
           <div className="mb-3 text-xs text-blue-400 bg-blue-400/10 rounded-lg p-2 border border-blue-400/20">
-            📱 Using Farcaster Mobile Wallet
+            📱 Using Farcaster Client Wallet
           </div>
         )}
 
@@ -552,3 +665,4 @@ export default function ResultPage() {
     </Suspense>
   );
 }
+           
