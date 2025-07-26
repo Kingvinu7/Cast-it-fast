@@ -147,44 +147,73 @@ function ResultContent() {
     }
   }, [isConfirmed, error]);
 
-  // Mobile-specific wallet transaction
+  // Mobile-specific wallet transaction with robust error handling
   const submitToLeaderboardMobile = async () => {
     if (!score || !currentUser) {
-      setSubmissionStatus("❌ Please ensure user data is available");
+      setSubmissionStatus("❌ Missing score or user data");
       return;
     }
 
     try {
-      setSubmissionStatus("📱 Submitting to blockchain...");
+      setSubmissionStatus("📱 Preparing submission...");
       
-      // Extract display name safely
-      let safeName;
+      // Ultra-safe name extraction with detailed logging
+      let safeName = "UnknownUser";
+      let debugDetails = [];
+      
       try {
-        safeName = currentUser.displayName || currentUser.username || `User_${currentUser.fid}`;
-        // Ensure it's a string and clean it
-        safeName = String(safeName).trim();
-        if (!safeName) {
+        debugDetails.push(`currentUser type: ${typeof currentUser}`);
+        debugDetails.push(`currentUser keys: ${Object.keys(currentUser || {})}`);
+        
+        if (currentUser.displayName) {
+          debugDetails.push(`displayName type: ${typeof currentUser.displayName}`);
+          if (typeof currentUser.displayName === 'string') {
+            safeName = currentUser.displayName;
+          } else if (typeof currentUser.displayName === 'function') {
+            safeName = await currentUser.displayName();
+          } else {
+            safeName = JSON.stringify(currentUser.displayName);
+          }
+        } else if (currentUser.username) {
+          safeName = currentUser.username;
+        } else if (currentUser.fid) {
           safeName = `User_${currentUser.fid}`;
         }
+        
+        // Final safety check
+        safeName = String(safeName).trim() || `User_${currentUser.fid || 'unknown'}`;
+        debugDetails.push(`Final safeName: ${safeName}`);
+        
       } catch (nameError) {
-        console.error("Name extraction error:", nameError);
-        safeName = `User_${currentUser.fid}`;
+        debugDetails.push(`Name error: ${nameError.message}`);
+        safeName = `User_${currentUser.fid || 'unknown'}`;
       }
       
-      const payload = {
-        displayName: safeName,
-        score: parseInt(score),
-        fid: currentUser.fid,
-        platform: 'mobile'
-      };
+      // Ultra-safe payload creation
+      let payload;
+      try {
+        payload = {
+          displayName: safeName,
+          score: parseInt(score) || 0,
+          fid: currentUser.fid || 0,
+          platform: 'mobile'
+        };
+        
+        // Test JSON stringify before sending
+        const testJson = JSON.stringify(payload);
+        debugDetails.push(`Payload JSON length: ${testJson.length}`);
+        
+      } catch (payloadError) {
+        debugDetails.push(`Payload error: ${payloadError.message}`);
+        throw new Error(`Payload creation failed: ${payloadError.message}`);
+      }
       
-      // Log the request for debugging
-      console.log("Making API request:", payload);
-      
-      // Add to debug logs for mobile viewing
+      // Update debug info
       const newDebug = { ...debugInfo };
-      newDebug.apiLogs.push(`Sending: ${safeName}, Score: ${score}`);
+      newDebug.apiLogs = [...(newDebug.apiLogs || []), ...debugDetails.slice(-3)];
       setDebugInfo(newDebug);
+      
+      setSubmissionStatus("📱 Submitting to blockchain...");
       
       const response = await fetch('/api/submit-score', {
         method: 'POST',
@@ -194,72 +223,62 @@ function ResultContent() {
         body: JSON.stringify(payload)
       });
 
-      console.log("API Response status:", response.status);
-      console.log("API Response ok:", response.ok);
-      
-      // Add response to debug logs
       const responseDebug = { ...debugInfo };
       responseDebug.apiLogs.push(`Response: ${response.status} ${response.ok ? 'OK' : 'ERROR'}`);
       setDebugInfo(responseDebug);
 
       if (response.ok) {
         const result = await response.json();
-        console.log("API Success result:", result);
         setSubmissionStatus("🎉 Score submitted to blockchain!");
         
-        // Show transaction details
         if (result.transactionHash) {
           setTimeout(() => {
-            setSubmissionStatus(`✅ Blockchain confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
+            setSubmissionStatus(`✅ Confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
           }, 2000);
         }
       } else {
         const errorText = await response.text();
-        console.error("API Error response:", errorText);
-        throw new Error(`API Error ${response.status}: ${errorText}`);
+        throw new Error(`API Error ${response.status}: ${errorText.slice(0, 100)}`);
       }
       
     } catch (err) {
-      console.error("Full error details:", err);
+      console.error("Submission error:", err);
       
-      // Show specific error types
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        setSubmissionStatus("🌐 Network connection failed - check internet");
-      } else if (err.message.includes('API Error 500')) {
-        setSubmissionStatus("⚠️ Blockchain error - server issue");
-      } else if (err.message.includes('API Error 400')) {
-        setSubmissionStatus("❌ Invalid data - please try again");
-      } else if (err.message.includes('primitive value')) {
-        setSubmissionStatus("❌ Data format error - trying backup...");
+      // More specific error detection
+      const errorMsg = String(err.message || err);
+      
+      if (errorMsg.includes('primitive value') || errorMsg.includes('convert object')) {
+        setSubmissionStatus("❌ Data format error - check debug info");
+      } else if (errorMsg.includes('fetch')) {
+        setSubmissionStatus("🌐 Network error");
+      } else if (errorMsg.includes('500')) {
+        setSubmissionStatus("⚠️ Server error");
+      } else if (errorMsg.includes('400')) {
+        setSubmissionStatus("❌ Invalid data");
       } else {
-        setSubmissionStatus(`❌ Failed: ${err.message.slice(0, 30)}...`);
+        setSubmissionStatus(`❌ Error: ${errorMsg.slice(0, 30)}...`);
       }
       
-      // Still save locally as backup, but make it clear this is a fallback
+      // Save backup with minimal data to avoid object conversion issues
       try {
-        const leaderboardData = {
-          displayName: `User_${currentUser.fid}`, // Use safe fallback name
-          score: parseInt(score),
-          fid: currentUser.fid,
-          timestamp: new Date().toISOString(),
-          platform: 'mobile',
-          error: err.message,
-          originalStatus: submissionStatus
+        const simpleBackup = {
+          name: `User_${currentUser?.fid || 'unknown'}`,
+          score: parseInt(score) || 0,
+          timestamp: Date.now(),
+          error: errorMsg.slice(0, 100)
         };
         
-        const existingLeaderboard = JSON.parse(localStorage.getItem("pendingLeaderboardEntries") || "[]");
-        existingLeaderboard.push(leaderboardData);
-        localStorage.setItem("pendingLeaderboardEntries", JSON.stringify(existingLeaderboard));
+        localStorage.setItem("lastFailedSubmission", JSON.stringify(simpleBackup));
         
-        console.log("Backup saved to localStorage:", leaderboardData);
-        
-        // Update status to show it's backed up
         setTimeout(() => {
-          setSubmissionStatus(submissionStatus + " (saved as backup)");
-        }, 3000);
+          setSubmissionStatus(submissionStatus + " (backup saved)");
+        }, 2000);
         
-      } catch (localError) {
-        console.error("Backup save failed:", localError);
+      } catch (backupError) {
+        console.error("Backup failed:", backupError);
+        setTimeout(() => {
+          setSubmissionStatus(submissionStatus + " (no backup)");
+        }, 2000);
       }
     }
   };
@@ -506,23 +525,32 @@ function ResultContent() {
 
       <div className="relative z-10 text-center max-w-sm mx-auto w-full flex flex-col justify-center min-h-screen py-2">  
           
-        {/* Compact Debug Panel for mobile */}
+        {/* Enhanced Debug Panel for mobile */}
         {(debugInfo.errors.length > 0 || debugInfo.environmentDetected || debugInfo.apiLogs.length > 0) && (
           <div className="mb-2 text-xs bg-black/50 backdrop-blur-sm rounded-lg p-2 border border-white/20 text-left">
             <div className="font-bold text-yellow-400 mb-1">🔧 Debug:</div>
-            <div className="grid grid-cols-2 gap-1 text-xs">
+            <div className="grid grid-cols-2 gap-1 text-xs mb-1">
               <div>Wagmi: {debugInfo.wagmiSkipped ? '✅ Skip' : '❌ Run'}</div>
               <div>Env: {isMobileFarcaster ? '📱 Mobile' : '🌐 Web'}</div>
             </div>
+            
+            {/* Show current user info for debugging */}
+            {currentUser && (
+              <div className="text-xs opacity-80 mb-1">
+                User: {currentUser.fid} | Name: {String(currentUser.displayName || 'N/A').slice(0, 15)}
+              </div>
+            )}
+            
             {/* Show API logs if any */}
             {debugInfo.apiLogs.length > 0 && (
               <div className="mt-1 text-xs opacity-80">
-                <div className="font-bold text-blue-400">API:</div>
-                {debugInfo.apiLogs.slice(-2).map((log, i) => (
-                  <div key={i} className="text-xs">{log}</div>
+                <div className="font-bold text-blue-400">API Logs:</div>
+                {debugInfo.apiLogs.slice(-3).map((log, i) => (
+                  <div key={i} className="text-xs break-all">{log}</div>
                 ))}
               </div>
             )}
+            
             {/* Compact Manual Override Button */}
             <button 
               onClick={() => setIsMobileFarcaster(!isMobileFarcaster)}
