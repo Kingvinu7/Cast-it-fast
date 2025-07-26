@@ -26,11 +26,11 @@ const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactio
 hash,
 });
 
-// Auto-connect wallet when component loads
+// Disabled auto-connect for debugging - manual connect will handle this now
 useEffect(() => {
-if (!isConnected && connectors.length > 0) {
-connect({ connector: connectors[0] });
-}
+  // if (!isConnected && connectors.length > 0) {
+  //   connect({ connector: connectors[0] });
+  // }
 }, [isConnected, connectors, connect]);
 
 // Handle transaction confirmation
@@ -45,11 +45,28 @@ console.error("Transaction error:", error);
 
 // Submit to leaderboard using Wagmi
 const submitToLeaderboard = async () => {
-if (!isConnected || !score || !currentUser?.displayName) {
-setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
+if (!score || !currentUser?.displayName) {
+setSubmissionStatus("❌ Please ensure user data is available");
 return;
 }
 
+// Manual connect if not already connected
+if (!isConnected) {
+  setSubmissionStatus("🔌 Connecting wallet...");
+  try {
+    if (connectors.length === 0) {
+      throw new Error("No connectors available");
+    }
+    await connect({ connector: connectors[0] });
+    setSubmissionStatus("✅ Wallet connected! Submitting score...");
+  } catch (err) {
+    console.error("Wallet connection failed:", err);
+    setSubmissionStatus(`❌ Wallet connection failed: ${err.message}`);
+    return;
+  }
+}
+
+// Proceed with submission
 try {  
   setSubmissionStatus("📝 Submitting to leaderboard...");  
     
