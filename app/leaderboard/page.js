@@ -2,8 +2,10 @@
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { getContract } from "@/lib/leaderboardContract";
+import { useRouter } from "next/navigation";
 
 export default function LeaderboardPage() {
+  const router = useRouter();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -17,16 +19,14 @@ export default function LeaderboardPage() {
         const results = [];
 
         for (let i = 0; i < total; i++) {
-  const [name, user, score] = await contract.getEntry(i);
+          const [name, user, score] = await contract.getEntry(i);
+          results.push({
+            displayName: name,
+            address: user,
+            score: parseInt(score.toString()),
+          });
+        }
 
-  results.push({
-    displayName: name,
-    address: user,
-    score: parseInt(score.toString()),
-  });
-}
-
-        // Sort descending by score
         const sorted = results.sort((a, b) => b.score - a.score);
         setEntries(sorted);
       } catch (err) {
@@ -42,6 +42,15 @@ export default function LeaderboardPage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900 to-purple-900 text-white flex items-center justify-center px-4 py-6">
       <div className="w-full max-w-md">
+
+        {/* 🏠 Home Button */}
+        <button
+          onClick={() => router.push("/")}
+          className="mb-4 px-4 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/20 transition font-semibold"
+        >
+          🏠 Home
+        </button>
+
         <h1 className="text-2xl font-bold mb-6 text-center">🏆 Leaderboard</h1>
 
         {loading ? (
