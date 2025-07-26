@@ -149,7 +149,7 @@ function ResultContent() {
 
   // Mobile-specific wallet transaction
   const submitToLeaderboardMobile = async () => {
-    if (!score || !currentUser?.displayName) {
+    if (!score || !currentUser) {
       setSubmissionStatus("❌ Please ensure user data is available");
       return;
     }
@@ -157,8 +157,22 @@ function ResultContent() {
     try {
       setSubmissionStatus("📱 Submitting to blockchain...");
       
+      // Extract display name safely
+      let safeName;
+      try {
+        safeName = currentUser.displayName || currentUser.username || `User_${currentUser.fid}`;
+        // Ensure it's a string and clean it
+        safeName = String(safeName).trim();
+        if (!safeName) {
+          safeName = `User_${currentUser.fid}`;
+        }
+      } catch (nameError) {
+        console.error("Name extraction error:", nameError);
+        safeName = `User_${currentUser.fid}`;
+      }
+      
       const payload = {
-        displayName: String(currentUser.displayName || currentUser.username || `User_${currentUser.fid}`),
+        displayName: safeName,
         score: parseInt(score),
         fid: currentUser.fid,
         platform: 'mobile'
@@ -169,7 +183,7 @@ function ResultContent() {
       
       // Add to debug logs for mobile viewing
       const newDebug = { ...debugInfo };
-      newDebug.apiLogs.push(`Sending: ${JSON.stringify(payload).slice(0, 50)}...`);
+      newDebug.apiLogs.push(`Sending: ${safeName}, Score: ${score}`);
       setDebugInfo(newDebug);
       
       const response = await fetch('/api/submit-score', {
@@ -215,6 +229,8 @@ function ResultContent() {
         setSubmissionStatus("⚠️ Blockchain error - server issue");
       } else if (err.message.includes('API Error 400')) {
         setSubmissionStatus("❌ Invalid data - please try again");
+      } else if (err.message.includes('primitive value')) {
+        setSubmissionStatus("❌ Data format error - trying backup...");
       } else {
         setSubmissionStatus(`❌ Failed: ${err.message.slice(0, 30)}...`);
       }
@@ -222,7 +238,7 @@ function ResultContent() {
       // Still save locally as backup, but make it clear this is a fallback
       try {
         const leaderboardData = {
-          displayName: currentUser.displayName.toString(),
+          displayName: `User_${currentUser.fid}`, // Use safe fallback name
           score: parseInt(score),
           fid: currentUser.fid,
           timestamp: new Date().toISOString(),
@@ -321,17 +337,31 @@ function ResultContent() {
 
           let displayName;
           try {
-            displayName = await context.user.displayName();
-          } catch {
-            displayName = context.user.displayName;
+            // Handle different possible formats of displayName
+            if (typeof context.user.displayName === 'function') {
+              displayName = await context.user.displayName();
+            } else if (context.user.displayName) {
+              displayName = String(context.user.displayName);
+            } else {
+              displayName = context.user.username || `User_${context.user.fid}`;
+            }
+            
+            // Ensure it's always a string
+            displayName = String(displayName || context.user.username || `User_${context.user.fid}`);
+            
+          } catch (nameError) {
+            console.log("DisplayName error:", nameError);
+            displayName = context.user.username || `User_${context.user.fid}`;
           }
 
           setCurrentUser({
             fid: context.user.fid,
             username: context.user.username,
-            displayName,
+            displayName: displayName, // Now guaranteed to be a string
             pfpUrl: context.user.pfpUrl,
           });
+          
+          debug.errors.push(`User set: ${displayName}`);
         } else {
           debug.errors.push("No user context available");
         }
