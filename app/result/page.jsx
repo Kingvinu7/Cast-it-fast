@@ -7,36 +7,11 @@ import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt 
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
 
-// Simple and reliable Farcaster detection
-const detectFarcasterEnvironment = () => {
-  const debug = { ...debugInfo };
-  
-  try {
-    debug.userAgent = typeof window !== 'undefined' ? window.navigator.userAgent : 'Server';
-    debug.hasSDK = typeof sdk !== 'undefined';
-    
-    // Check user agent first - most reliable for mobile
-    const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(debug.userAgent);
-    const hasFarcaster = debug.userAgent.includes('Farcaster') || debug.userAgent.includes('Warpcast');
-    
-    // If mobile OR has user context from previous checks, treat as Farcaster
-    const hasPreviousUserContext = currentUser !== null;
-    
-    if (isMobile || hasFarcaster || hasPreviousUserContext) {
-      debug.environmentDetected = `Farcaster Mobile detected - Mobile: ${isMobile}, HasFC: ${hasFarcaster}, HasUser: ${hasPreviousUserContext}`;
-      setDebugInfo(debug);
-      return true;
-    }
-    
-    debug.environmentDetected = 'Desktop Web detected';
-    setDebugInfo(debug);
-    return false;
-  } catch (error) {
-    debug.errors.push(`Detection Error: ${error.message}`);
-    debug.environmentDetected = 'Error in detection, assuming mobile for safety';
-    setDebugInfo(debug);
-    return true; // Assume mobile to be safe
-  }
+// Simple and safe Farcaster detection
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false;
+  const userAgent = window.navigator.userAgent;
+  return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 };
 
 // Separate component that uses useSearchParams
@@ -45,27 +20,16 @@ function ResultContent() {
   const router = useRouter();
   const score = searchParams.get("score");
   const correct = searchParams.get("correct");
+  
+  // Basic state
   const [showConfetti, setShowConfetti] = useState(false);
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [submissionStatus, setSubmissionStatus] = useState("");
   const [isMobileFarcaster, setIsMobileFarcaster] = useState(false);
-  const [farcasterWallet, setFarcasterWallet] = useState(null);
-  
-  const [debugInfo, setDebugInfo] = useState({
-    userAgent: '',
-    hasSDK: false,
-    hasContext: false,
-    hasUser: false,
-    hasClient: false,
-    clientInfo: '',
-    environmentDetected: '',
-    wagmiSkipped: false,
-    errors: [],
-    apiLogs: [] // Add API debugging logs
-  });
+  const [debugInfo, setDebugInfo] = useState("");
 
-  // Wagmi hooks (only used for web)
+  // Wagmi hooks - only use if not mobile
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { writeContract, data: hash, isPending, error } = useWriteContract();
@@ -73,64 +37,66 @@ function ResultContent() {
     hash,
   });
 
-  // Detect environment on mount
+  // Simple environment detection
   useEffect(() => {
-    // Simple detection that runs after user context is potentially available
-    const timer = setTimeout(() => {
-      const isFarcasterClient = detectFarcasterEnvironment();
-      setIsMobileFarcaster(isFarcasterClient);
-    }, 500); // Small delay to let user context load
-    
-    return () => clearTimeout(timer);
-  }, [currentUser]); // Re-run when currentUser changes
+    const mobile = isMobileDevice();
+    setIsMobileFarcaster(mobile);
+    setDebugInfo(`Environment: ${mobile ? 'Mobile' : 'Desktop'}`);
+  }, []);
 
-  // Initialize Farcaster wallet for mobile
+  // Initialize Farcaster user
   useEffect(() => {
-    const initializeFarcasterWallet = async () => {
-      if (!isMobileFarcaster) return;
-      
+    const initUser = async () => {
       try {
         await sdk.actions.ready();
+        const context = sdk.context;
         
-        // Check if wallet is available in the SDK context
-        if (sdk.context?.wallet) {
-          setFarcasterWallet(sdk.context.wallet);
-          console.log("Farcaster wallet initialized:", sdk.context.wallet);
-        } else {
-          console.log("Farcaster wallet not available in SDK context");
+        if (context?.user) {
+          let displayName = "UnknownUser";
+          
+          try {
+            if (context.user.displayName) {
+              if (typeof context.user.displayName === 'function') {
+                displayName = await context.user.displayName();
+              } else {
+                displayName = String(context.user.displayName);
+              }
+            } else if (context.user.username) {
+              displayName = context.user.username;
+            } else {
+              displayName = `User_${context.user.fid}`;
+            }
+          } catch (e) {
+            displayName = `User_${context.user.fid}`;
+          }
+
+          setCurrentUser({
+            fid: context.user.fid,
+            username: context.user.username || "",
+            displayName: displayName,
+            pfpUrl: context.user.pfpUrl || "",
+          });
+          
+          setDebugInfo(prev => prev + ` | User: ${displayName}`);
         }
       } catch (error) {
-        console.error("Failed to initialize Farcaster wallet:", error);
+        console.error("SDK init failed:", error);
       }
     };
 
-    initializeFarcasterWallet();
-  }, [isMobileFarcaster]);
+    initUser();
+  }, []);
 
-  // Handle wagmi connection for web only
+  // Handle wagmi connection for desktop only
   useEffect(() => {
-    const debug = { ...debugInfo };
+    if (isMobileFarcaster) return;
     
-    if (isMobileFarcaster) {
-      debug.wagmiSkipped = true;
-      debug.environmentDetected += " - Wagmi SKIPPED";
-      setDebugInfo(debug);
-      return; // Skip wagmi for Farcaster clients
-    }
-    
-    // Auto-connect for web users
     if (!isConnected && connectors.length > 0) {
-      debug.wagmiSkipped = false;
-      debug.environmentDetected += " - Wagmi CONNECTING";
-      setDebugInfo(debug);
-      
       const timer = setTimeout(() => {
         try {
           connect({ connector: connectors[0] });
         } catch (error) {
-          const newDebug = { ...debugInfo };
-          newDebug.errors.push(`Wagmi Error: ${error.message}`);
-          setDebugInfo(newDebug);
+          console.error("Wagmi connection failed:", error);
         }
       }, 1000);
       return () => clearTimeout(timer);
@@ -143,89 +109,31 @@ function ResultContent() {
       setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
     } else if (error) {
       setSubmissionStatus("❌ Failed to submit score. Please try again.");
-      console.error("Transaction error:", error);
     }
   }, [isConfirmed, error]);
 
-  // Mobile-specific wallet transaction with robust error handling
+  // Mobile submission function
   const submitToLeaderboardMobile = async () => {
     if (!score || !currentUser) {
-      setSubmissionStatus("❌ Missing score or user data");
+      setSubmissionStatus("❌ Missing required data");
       return;
     }
 
     try {
-      setSubmissionStatus("📱 Preparing submission...");
-      
-      // Ultra-safe name extraction with detailed logging
-      let safeName = "UnknownUser";
-      let debugDetails = [];
-      
-      try {
-        debugDetails.push(`currentUser type: ${typeof currentUser}`);
-        debugDetails.push(`currentUser keys: ${Object.keys(currentUser || {})}`);
-        
-        if (currentUser.displayName) {
-          debugDetails.push(`displayName type: ${typeof currentUser.displayName}`);
-          if (typeof currentUser.displayName === 'string') {
-            safeName = currentUser.displayName;
-          } else if (typeof currentUser.displayName === 'function') {
-            safeName = await currentUser.displayName();
-          } else {
-            safeName = JSON.stringify(currentUser.displayName);
-          }
-        } else if (currentUser.username) {
-          safeName = currentUser.username;
-        } else if (currentUser.fid) {
-          safeName = `User_${currentUser.fid}`;
-        }
-        
-        // Final safety check
-        safeName = String(safeName).trim() || `User_${currentUser.fid || 'unknown'}`;
-        debugDetails.push(`Final safeName: ${safeName}`);
-        
-      } catch (nameError) {
-        debugDetails.push(`Name error: ${nameError.message}`);
-        safeName = `User_${currentUser.fid || 'unknown'}`;
-      }
-      
-      // Ultra-safe payload creation
-      let payload;
-      try {
-        payload = {
-          displayName: safeName,
-          score: parseInt(score) || 0,
-          fid: currentUser.fid || 0,
-          platform: 'mobile'
-        };
-        
-        // Test JSON stringify before sending
-        const testJson = JSON.stringify(payload);
-        debugDetails.push(`Payload JSON length: ${testJson.length}`);
-        
-      } catch (payloadError) {
-        debugDetails.push(`Payload error: ${payloadError.message}`);
-        throw new Error(`Payload creation failed: ${payloadError.message}`);
-      }
-      
-      // Update debug info
-      const newDebug = { ...debugInfo };
-      newDebug.apiLogs = [...(newDebug.apiLogs || []), ...debugDetails.slice(-3)];
-      setDebugInfo(newDebug);
-      
       setSubmissionStatus("📱 Submitting to blockchain...");
       
+      const payload = {
+        displayName: currentUser.displayName || `User_${currentUser.fid}`,
+        score: parseInt(score),
+        fid: currentUser.fid,
+        platform: 'mobile'
+      };
+
       const response = await fetch('/api/submit-score', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-
-      const responseDebug = { ...debugInfo };
-      responseDebug.apiLogs.push(`Response: ${response.status} ${response.ok ? 'OK' : 'ERROR'}`);
-      setDebugInfo(responseDebug);
 
       if (response.ok) {
         const result = await response.json();
@@ -237,60 +145,33 @@ function ResultContent() {
           }, 2000);
         }
       } else {
-        const errorText = await response.text();
-        throw new Error(`API Error ${response.status}: ${errorText.slice(0, 100)}`);
+        throw new Error(`Server error: ${response.status}`);
       }
       
     } catch (err) {
-      console.error("Submission error:", err);
+      console.error("Mobile submission failed:", err);
+      setSubmissionStatus("❌ Submission failed - saved locally");
       
-      // More specific error detection
-      const errorMsg = String(err.message || err);
-      
-      if (errorMsg.includes('primitive value') || errorMsg.includes('convert object')) {
-        setSubmissionStatus("❌ Data format error - check debug info");
-      } else if (errorMsg.includes('fetch')) {
-        setSubmissionStatus("🌐 Network error");
-      } else if (errorMsg.includes('500')) {
-        setSubmissionStatus("⚠️ Server error");
-      } else if (errorMsg.includes('400')) {
-        setSubmissionStatus("❌ Invalid data");
-      } else {
-        setSubmissionStatus(`❌ Error: ${errorMsg.slice(0, 30)}...`);
-      }
-      
-      // Save backup with minimal data to avoid object conversion issues
+      // Simple local backup
       try {
-        const simpleBackup = {
-          name: `User_${currentUser?.fid || 'unknown'}`,
-          score: parseInt(score) || 0,
-          timestamp: Date.now(),
-          error: errorMsg.slice(0, 100)
-        };
-        
-        localStorage.setItem("lastFailedSubmission", JSON.stringify(simpleBackup));
-        
-        setTimeout(() => {
-          setSubmissionStatus(submissionStatus + " (backup saved)");
-        }, 2000);
-        
-      } catch (backupError) {
-        console.error("Backup failed:", backupError);
-        setTimeout(() => {
-          setSubmissionStatus(submissionStatus + " (no backup)");
-        }, 2000);
+        localStorage.setItem("lastScore", JSON.stringify({
+          score: parseInt(score),
+          user: currentUser.displayName || `User_${currentUser.fid}`,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.error("Local save failed:", e);
       }
     }
   };
 
-  // Web-specific wallet transaction (existing logic)
+  // Desktop submission function
   const submitToLeaderboardWeb = async () => {
     if (!score || !currentUser?.displayName) {
       setSubmissionStatus("❌ Please ensure user data is available");
       return;
     }
 
-    // Manual connect if not already connected
     if (!isConnected) {
       setSubmissionStatus("🔌 Connecting wallet...");
       try {
@@ -300,13 +181,11 @@ function ResultContent() {
         await connect({ connector: connectors[0] });
         setSubmissionStatus("✅ Wallet connected! Submitting score...");
       } catch (err) {
-        console.error("Wallet connection failed:", err);
         setSubmissionStatus(`❌ Wallet connection failed: ${err.message}`);
         return;
       }
     }
 
-    // Proceed with submission
     try {  
       setSubmissionStatus("📝 Submitting to leaderboard...");  
       const displayName = currentUser?.displayName?.toString?.() ?? "";
@@ -318,88 +197,25 @@ function ResultContent() {
         args: [displayName, parseInt(score)],
       });
     } catch (err) {
-      console.error("Submission failed:", err);
-      if (err?.message) {
-        setSubmissionStatus(`❌ ${err.message}`);
-      } else {
-        setSubmissionStatus("❌ Failed to submit score. Please try again.");
-      }
+      setSubmissionStatus(`❌ ${err.message || "Failed to submit score"}`);
     }
   };
 
-  // Unified submit function that routes to appropriate method
-  const submitToLeaderboard = async () => {
+  // Unified submit function
+  const submitToLeaderboard = () => {
     if (isMobileFarcaster) {
-      await submitToLeaderboardMobile();
+      submitToLeaderboardMobile();
     } else {
-      await submitToLeaderboardWeb();
+      submitToLeaderboardWeb();
     }
   };
 
-  // Initialize user context with better error handling
-  useEffect(() => {
-    const initializeUser = async () => {
-      const debug = { ...debugInfo };
-      
-      try {
-        debug.errors.push("Initializing SDK...");
-        await sdk.actions.ready();
-        const context = sdk.context;
-        
-        debug.hasContext = !!context;
-        debug.hasUser = !!context?.user;
-        debug.hasClient = !!context?.client;
-        debug.clientInfo = context?.client || 'No client';
-
-        if (context?.user) {
-          debug.errors.push("User context found!");
-
-          let displayName;
-          try {
-            // Handle different possible formats of displayName
-            if (typeof context.user.displayName === 'function') {
-              displayName = await context.user.displayName();
-            } else if (context.user.displayName) {
-              displayName = String(context.user.displayName);
-            } else {
-              displayName = context.user.username || `User_${context.user.fid}`;
-            }
-            
-            // Ensure it's always a string
-            displayName = String(displayName || context.user.username || `User_${context.user.fid}`);
-            
-          } catch (nameError) {
-            console.log("DisplayName error:", nameError);
-            displayName = context.user.username || `User_${context.user.fid}`;
-          }
-
-          setCurrentUser({
-            fid: context.user.fid,
-            username: context.user.username,
-            displayName: displayName, // Now guaranteed to be a string
-            pfpUrl: context.user.pfpUrl,
-          });
-          
-          debug.errors.push(`User set: ${displayName}`);
-        } else {
-          debug.errors.push("No user context available");
-        }
-        
-        setDebugInfo(debug);
-      } catch (error) {  
-        debug.errors.push(`SDK Init Failed: ${error.message}`);
-        setDebugInfo(debug);
-      }  
-    };  
-
-    initializeUser();
-  }, []);
-
-  // Animation and game history effects (unchanged)
+  // Animation effects
   useEffect(() => {
     setShowConfetti(true);
     setTimeout(() => setAnimateScore(true), 500);
 
+    // Save game history
     if (!score || !correct) return;  
 
     const numScore = parseInt(score) || 0;  
@@ -416,26 +232,13 @@ function ResultContent() {
       date: new Date().toISOString()  
     };  
 
-    const existingHistory = JSON.parse(localStorage.getItem("playHistory") || "[]");  
-      
-    const now = new Date(gameResult.date).getTime();  
-    const isDuplicate = existingHistory.some(entry =>   
-      entry.score === gameResult.score &&   
-      entry.correct === gameResult.correct &&  
-      entry.accuracy === gameResult.accuracy &&  
-      Math.abs(new Date(entry.date).getTime() - now) < 5000  
-    );  
-      
-    if (isDuplicate) {  
-      console.log("Duplicate game entry detected, skipping save");  
-      return;  
-    }  
-      
-    const updatedHistory = [gameResult, ...existingHistory];  
-    const limitedHistory = updatedHistory.slice(0, 10);  
-      
-    localStorage.setItem("playHistory", JSON.stringify(limitedHistory));  
-    console.log("Game result saved to history:", gameResult);
+    try {
+      const existingHistory = JSON.parse(localStorage.getItem("playHistory") || "[]");  
+      const updatedHistory = [gameResult, ...existingHistory].slice(0, 10);  
+      localStorage.setItem("playHistory", JSON.stringify(updatedHistory));  
+    } catch (e) {
+      console.error("History save failed:", e);
+    }
   }, [score, correct]);
 
   const getPerformanceMessage = (score, correct) => {
@@ -473,16 +276,12 @@ function ResultContent() {
     const numCorrect = parseInt(correct) || 0;
 
     const shareText = `I scored ${numScore} and answered ${numCorrect} questions on Cast It Fast trivia game on Farcaster, can you beat me?`;  
-      
     const encodedText = encodeURIComponent(shareText);  
     const miniappUrl = encodeURIComponent("https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast");  
-      
     const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`;  
-      
     window.open(farcasterUrl, '_blank', 'noopener,noreferrer');
   };
 
-  // Get button text and status for leaderboard submission
   const getLeaderboardButtonText = () => {
     if (isMobileFarcaster) {
       return "📱 Submit Score (Mobile)";
@@ -525,45 +324,23 @@ function ResultContent() {
 
       <div className="relative z-10 text-center max-w-sm mx-auto w-full flex flex-col justify-center min-h-screen py-2">  
           
-        {/* Enhanced Debug Panel for mobile */}
-        {(debugInfo.errors.length > 0 || debugInfo.environmentDetected || debugInfo.apiLogs.length > 0) && (
+        {/* Simple Debug Info */}
+        {debugInfo && (
           <div className="mb-2 text-xs bg-black/50 backdrop-blur-sm rounded-lg p-2 border border-white/20 text-left">
-            <div className="font-bold text-yellow-400 mb-1">🔧 Debug:</div>
-            <div className="grid grid-cols-2 gap-1 text-xs mb-1">
-              <div>Wagmi: {debugInfo.wagmiSkipped ? '✅ Skip' : '❌ Run'}</div>
-              <div>Env: {isMobileFarcaster ? '📱 Mobile' : '🌐 Web'}</div>
-            </div>
-            
-            {/* Show current user info for debugging */}
-            {currentUser && (
-              <div className="text-xs opacity-80 mb-1">
-                User: {currentUser.fid} | Name: {String(currentUser.displayName || 'N/A').slice(0, 15)}
-              </div>
-            )}
-            
-            {/* Show API logs if any */}
-            {debugInfo.apiLogs.length > 0 && (
-              <div className="mt-1 text-xs opacity-80">
-                <div className="font-bold text-blue-400">API Logs:</div>
-                {debugInfo.apiLogs.slice(-3).map((log, i) => (
-                  <div key={i} className="text-xs break-all">{log}</div>
-                ))}
-              </div>
-            )}
-            
-            {/* Compact Manual Override Button */}
+            <div className="font-bold text-yellow-400 mb-1">🔧 Info:</div>
+            <div className="text-xs">{debugInfo}</div>
             <button 
               onClick={() => setIsMobileFarcaster(!isMobileFarcaster)}
               className="mt-1 px-2 py-0.5 bg-yellow-600 text-black text-xs rounded w-full"
             >
-              Toggle Mode
+              Toggle: {isMobileFarcaster ? 'Force Web' : 'Force Mobile'}
             </button>
           </div>
         )}
 
         {/* Environment Indicator */}
         <div className="mb-2 text-xs opacity-60">
-          {isMobileFarcaster ? "📱 Farcaster Client" : "🌐 Web Version"}
+          {isMobileFarcaster ? "📱 Farcaster Mobile" : "🌐 Web Version"}
         </div>
 
         {/* Main Trophy Animation */}  
@@ -600,7 +377,7 @@ function ResultContent() {
           <div className="text-xs opacity-60">points</div>  
         </div>  
 
-        {/* Stats Cards - Ultra Compact */}  
+        {/* Stats Cards */}  
         <div className={`grid grid-cols-3 gap-1.5 mb-3 transform transition-all duration-1000 delay-700 ${  
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'  
         }`}>  
@@ -623,7 +400,7 @@ function ResultContent() {
           </div>  
         </div>  
 
-        {/* Wallet Connection Status - Web Only */}  
+        {/* Wallet Connection Status */}  
         {!isMobileFarcaster && !isConnected && (  
           <div className="mb-3 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">  
             🔌 Wallet connecting... Please wait  
@@ -639,11 +416,11 @@ function ResultContent() {
         {/* Mobile Wallet Status */}
         {isMobileFarcaster && (
           <div className="mb-3 text-xs text-blue-400 bg-blue-400/10 rounded-lg p-2 border border-blue-400/20">
-            📱 Using Farcaster Client Wallet
+            📱 Using Mobile Submission
           </div>
         )}
 
-        {/* Action Buttons - Ultra Compact */}  
+        {/* Action Buttons */}  
         <div className={`space-y-1.5 transform transition-all duration-1000 delay-1000 ${  
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'  
         }`}>  
@@ -656,7 +433,6 @@ function ResultContent() {
             <span className="ml-2">↻</span>  
           </button>  
             
-          {/* Farcaster Share Button */}  
           <button  
             onClick={shareTofarcaster}  
             className="group bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"  
@@ -676,7 +452,7 @@ function ResultContent() {
           </button>  
         </div>  
 
-        {/* Leaderboard Submit Button with Enhanced Status */}  
+        {/* Leaderboard Submit Button */}  
         {currentUser && score && (  
           <button  
             onClick={submitToLeaderboard}  
@@ -691,7 +467,7 @@ function ResultContent() {
           </button>  
         )}  
 
-        {/* Enhanced Submission Status Message */}  
+        {/* Submission Status */}  
         {submissionStatus && (  
           <div className={`mt-3 text-sm font-medium rounded-lg p-2 ${  
             submissionStatus.includes('🎉') ? 'text-green-400 bg-green-400/10 border border-green-400/20' :  
@@ -702,14 +478,14 @@ function ResultContent() {
           </div>  
         )}  
 
-        {/* Transaction Hash Display - Web Only */}  
+        {/* Transaction Hash Display */}  
         {!isMobileFarcaster && hash && (  
           <div className="mt-2 text-xs text-gray-400 break-all">  
             Transaction: {hash.slice(0, 10)}...{hash.slice(-8)}  
           </div>  
         )}  
 
-        {/* Share Score - Ultra Compact */}  
+        {/* Share Message */}  
         <div className={`mt-2 opacity-60 transform transition-all duration-1000 delay-1200 ${  
           animateScore ? 'translate-y-0 opacity-60' : 'translate-y-10 opacity-0'  
         }`}>  
