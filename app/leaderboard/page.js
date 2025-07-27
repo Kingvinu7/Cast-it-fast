@@ -190,13 +190,6 @@ export default function BlockchainLeaderboard() {
           </div>
         )}
 
-        {/* Debug Info */}
-        <div className="mb-4 p-2 bg-black/30 rounded-lg text-xs">
-          <div>Contract: {leaderboardContract.address.slice(0, 10)}...</div>
-          <div>Total Entries: {totalEntries}</div>
-          <div>Loaded Scores: {scores.length}</div>
-        </div>
-
         {/* Leaderboard Entries */}
         {scores.length === 0 && !loading ? (
           <div className="text-center py-8">
