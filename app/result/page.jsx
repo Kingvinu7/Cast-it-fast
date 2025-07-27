@@ -383,7 +383,7 @@ function ResultContent() {
   };
 
   // Desktop submission function
-  const submitToLeaderboardWeb = async () => {
+  const submitToLeaderboardDesktop = async () => {
     if (!score || !currentUser?.displayName) {
       setSubmissionStatus("❌ Please ensure user data is available");
       return;
@@ -418,14 +418,6 @@ function ResultContent() {
     }
   };
 
-  // Unified submit function
-  const submitToLeaderboard = () => {
-    if (isMobileFarcaster) {
-      submitToLeaderboardMobile();
-    } else {
-      submitToLeaderboardWeb();
-    }
-  };
 
   // Animation effects
   useEffect(() => {
