@@ -335,7 +335,7 @@ function ResultContent() {
   };
 
   // Desktop submission function
-  const submitToLeaderboardWeb = async () => {
+  const submitToLeaderboardDesktop = async () => {
     if (!score || !currentUser?.displayName) {
       setSubmissionStatus("❌ Please ensure user data is available");
       return;
@@ -375,7 +375,7 @@ function ResultContent() {
     if (isMobileFarcaster) {
       submitToLeaderboardMobile();
     } else {
-      submitToLeaderboardWeb();
+      submitToLeaderboardDesktop();
     }
   };
 
