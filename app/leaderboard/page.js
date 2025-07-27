@@ -1,88 +1,212 @@
 "use client";
-import { useEffect, useState } from "react";
-import { ethers } from "ethers";
-import { getContract } from "@/lib/leaderboardContract";
-import { useRouter } from "next/navigation";
 
-export default function LeaderboardPage() {
-  const router = useRouter();
-  const [entries, setEntries] = useState([]);
+import { useState, useEffect } from 'react';
+import { ethers } from 'ethers';
+import leaderboardContract from '@/lib/leaderboardContract';
+
+export default function BlockchainLeaderboard() {
+  const [scores, setScores] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [totalEntries, setTotalEntries] = useState(0);
 
   useEffect(() => {
-    const fetchLeaderboard = async () => {
-      try {
-        const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
-        const contract = getContract(provider);
-
-        const total = await contract.getTotalEntries();
-        const results = [];
-
-        for (let i = 0; i < total; i++) {
-          const [name, user, score] = await contract.getEntry(i);
-          results.push({
-            displayName: name,
-            address: user,
-            score: parseInt(score.toString()),
-          });
-        }
-
-        const sorted = results.sort((a, b) => b.score - a.score);
-        setEntries(sorted);
-      } catch (err) {
-        console.error("Error fetching leaderboard:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchLeaderboard();
+    fetchLeaderboardData();
   }, []);
 
+  const fetchLeaderboardData = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      
+      // Initialize provider (read-only, no wallet needed)
+      const provider = new ethers.JsonRpcProvider(process.env.NEXT_PUBLIC_RPC_URL || 'https://eth.llamarpc.com');
+      
+      // Create contract instance for reading
+      const contract = new ethers.Contract(
+        leaderboardContract.address,
+        leaderboardContract.abi,
+        provider
+      );
+
+      console.log("Fetching total entries from contract...");
+      
+      // Get total number of entries
+      const total = await contract.getTotalEntries();
+      const totalCount = parseInt(total.toString());
+      
+      console.log("Total entries found:", totalCount);
+      setTotalEntries(totalCount);
+
+      if (totalCount === 0) {
+        setScores([]);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch all entries
+      const entries = [];
+      for (let i = 0; i < totalCount; i++) {
+        try {
+          const entry = await contract.getEntry(i);
+          entries.push({
+            displayName: entry[0],
+            userAddress: entry[1], 
+            score: parseInt(entry[2].toString()),
+            index: i
+          });
+        } catch (entryError) {
+          console.error(`Error fetching entry ${i}:`, entryError);
+          // Continue with other entries
+        }
+      }
+
+      // Sort by score (highest first)
+      entries.sort((a, b) => b.score - a.score);
+      
+      console.log("Fetched entries:", entries);
+      setScores(entries);
+      
+    } catch (err) {
+      console.error("Error fetching leaderboard:", err);
+      setError(`Failed to load leaderboard: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatAddress = (address) => {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  const getRankEmoji = (index) => {
+    switch (index) {
+      case 0: return "🥇";
+      case 1: return "🥈"; 
+      case 2: return "🥉";
+      default: return `#${index + 1}`;
+    }
+  };
+
+  const isMobileEntry = (displayName) => {
+    return displayName.includes('(FC:');
+  };
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="text-4xl mb-4 animate-spin">🏆</div>
+          <div className="text-lg">Loading leaderboard...</div>
+          <div className="text-sm opacity-60 mt-2">Reading from blockchain...</div>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900 to-purple-900 text-white flex items-center justify-center px-4 py-6">
-      <div className="w-full max-w-md">
+    <main className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white p-4">
+      <div className="max-w-md mx-auto">
+        {/* Header */}
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-bold mb-2 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-transparent">
+            🏆 Leaderboard
+          </h1>
+          <div className="text-sm opacity-60">
+            {totalEntries} total entries • Live from blockchain
+          </div>
+        </div>
 
-        {/* 🏠 Home Button */}
-        <button
-          onClick={() => router.push("/")}
-          className="mb-4 px-4 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/20 transition font-semibold"
-        >
-          🏠 Home
-        </button>
+        {/* Refresh Button */}
+        <div className="text-center mb-4">
+          <button
+            onClick={fetchLeaderboardData}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            🔄 Refresh
+          </button>
+        </div>
 
-        <h1 className="text-2xl font-bold mb-6 text-center">🏆 Leaderboard</h1>
+        {/* Error Message */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            {error}
+            <button 
+              onClick={fetchLeaderboardData}
+              className="ml-2 underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
-        {loading ? (
-          <div className="text-center text-gray-300">Loading...</div>
-        ) : entries.length === 0 ? (
-          <div className="text-center text-gray-400">No scores yet.</div>
+        {/* Debug Info */}
+        <div className="mb-4 p-2 bg-black/30 rounded-lg text-xs">
+          <div>Contract: {leaderboardContract.address.slice(0, 10)}...</div>
+          <div>Total Entries: {totalEntries}</div>
+          <div>Loaded Scores: {scores.length}</div>
+        </div>
+
+        {/* Leaderboard Entries */}
+        {scores.length === 0 && !loading ? (
+          <div className="text-center py-8">
+            <div className="text-4xl mb-4">🎮</div>
+            <div className="text-lg mb-2">No scores yet!</div>
+            <div className="text-sm opacity-60">Be the first to submit your score</div>
+          </div>
         ) : (
           <div className="space-y-2">
-            {entries.map((entry, i) => (
+            {scores.map((entry, index) => (
               <div
-                key={i}
-                className="flex justify-between items-center bg-white/10 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-lg"
+                key={`${entry.userAddress}-${entry.index}`}
+                className={`p-3 rounded-lg border ${
+                  index === 0 ? 'bg-yellow-500/20 border-yellow-500/30' :
+                  index === 1 ? 'bg-gray-400/20 border-gray-400/30' :
+                  index === 2 ? 'bg-amber-600/20 border-amber-600/30' :
+                  'bg-white/10 border-white/20'
+                }`}
               >
-                <div className="flex items-center space-x-3">
-                  <span className="w-6">
-                    {i === 0 ? "👑" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`}
-                  </span>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-semibold truncate max-w-[140px]">
-                      {entry.displayName}
-                    </span>
-                    <span className="text-xs text-gray-400 truncate max-w-[150px]">
-                      {entry.address.slice(0, 6)}...{entry.address.slice(-4)}
-                    </span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="text-lg font-bold w-8">
+                      {getRankEmoji(index)}
+                    </div>
+                    <div>
+                      <div className="font-medium text-sm">
+                        {entry.displayName}
+                      </div>
+                      <div className="text-xs opacity-60">
+                        {isMobileEntry(entry.displayName) ? (
+                          <span>📱 Mobile User</span>
+                        ) : (
+                          <span>🌐 {formatAddress(entry.userAddress)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-yellow-400">
+                      {entry.score}
+                    </div>
+                    <div className="text-xs opacity-60">points</div>
                   </div>
                 </div>
-                <span className="font-bold text-white/80">{entry.score}</span>
               </div>
             ))}
           </div>
         )}
+
+        {/* Back to Game Button */}
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => window.location.href = '/game'}
+            className="px-6 py-3 bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 rounded-lg font-bold text-white shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+          >
+            🎮 Play Again
+          </button>
+        </div>
       </div>
     </main>
   );
-}
+ }
