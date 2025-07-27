@@ -112,7 +112,7 @@ function ResultContent() {
     }
   }, [isConfirmed, error]);
 
-  // Mobile submission function
+  // Mobile submission using Farcaster's built-in wallet
   const submitToLeaderboardMobile = async () => {
     if (!score) {
       setSubmissionStatus("❌ No score available");
@@ -120,48 +120,62 @@ function ResultContent() {
     }
 
     try {
-      setSubmissionStatus("📱 Submitting to blockchain...");
+      setSubmissionStatus("📱 Preparing transaction...");
       
-      // Use fallback name if currentUser not available
-      const userName = currentUser?.displayName || currentUser?.username || `User_${currentUser?.fid || 'guest'}`;
-      
-      const payload = {
-        displayName: userName,
-        score: parseInt(score),
-        fid: currentUser?.fid || 0,
-        platform: 'mobile'
-      };
+      // Get user's wallet address first
+      const context = sdk.context;
+      if (!context?.user) {
+        setSubmissionStatus("❌ User not authenticated");
+        return;
+      }
 
-      const response = await fetch('/api/submit-score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      // Use fallback name if currentUser not fully loaded
+      const userName = currentUser?.displayName || currentUser?.username || `User_${context.user.fid}`;
+      
+      setSubmissionStatus("📱 Please sign the transaction...");
+
+      // Use Farcaster's built-in sendTransaction - this will prompt user to sign
+      const result = await sdk.actions.sendTransaction({
+        to: leaderboardContract.address,
+        value: "0",
+        data: leaderboardContract.interface.encodeFunctionData('submitScore', [
+          userName,
+          parseInt(score)
+        ])
       });
 
-      if (response.ok) {
-        const result = await response.json();
+      if (result.transactionHash) {
         setSubmissionStatus("🎉 Score submitted to blockchain!");
-        
-        if (result.transactionHash) {
-          setTimeout(() => {
-            setSubmissionStatus(`✅ Confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
-          }, 2000);
-        }
+        setTimeout(() => {
+          setSubmissionStatus(`✅ Confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
+        }, 2000);
       } else {
-        throw new Error(`Server error: ${response.status}`);
+        throw new Error("Transaction failed - no hash returned");
       }
       
     } catch (err) {
       console.error("Mobile submission failed:", err);
-      setSubmissionStatus("❌ Submission failed - saved locally");
       
-      // Simple local backup
+      if (err.message.includes('User rejected')) {
+        setSubmissionStatus("❌ Transaction cancelled by user");
+      } else if (err.message.includes('insufficient funds')) {
+        setSubmissionStatus("❌ Insufficient ETH for gas fees");
+      } else {
+        setSubmissionStatus(`❌ Transaction failed: ${err.message.slice(0, 30)}...`);
+      }
+      
+      // Fallback: save locally for retry later
       try {
-        localStorage.setItem("lastScore", JSON.stringify({
+        localStorage.setItem("pendingScore", JSON.stringify({
           score: parseInt(score),
-          user: currentUser?.displayName || `User_${currentUser?.fid || 'guest'}`,
-          timestamp: Date.now()
+          user: userName,
+          timestamp: Date.now(),
+          error: err.message
         }));
+        
+        setTimeout(() => {
+          setSubmissionStatus(submissionStatus + " (saved for retry)");
+        }, 2000);
       } catch (e) {
         console.error("Local save failed:", e);
       }
