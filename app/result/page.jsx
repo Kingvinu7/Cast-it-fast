@@ -63,7 +63,7 @@ args: [displayName, parseInt(score)],
 } catch (err) {
 console.error("Submission failed:", err);
 if (err?.message) {
-setSubmissionStatus(❌ ${err.message});
+setSubmissionStatus(`❌ ${err.message}`);
 } else {
 setSubmissionStatus("❌ Failed to submit score. Please try again.");
 }
