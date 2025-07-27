@@ -44,48 +44,83 @@ function ResultContent() {
     setDebugInfo(`Environment: ${mobile ? 'Mobile' : 'Desktop'}`);
   }, []);
 
-  // Initialize Farcaster user
+  // Initialize user context with enhanced name extraction
   useEffect(() => {
-    const initUser = async () => {
+    const initializeUser = async () => {
       try {
+        console.log("Initializing Farcaster SDK...");
         await sdk.actions.ready();
         const context = sdk.context;
         
+        console.log("SDK context available:", !!context);
+        console.log("User available:", !!context?.user);
+
         if (context?.user) {
           let displayName = "UnknownUser";
           
           try {
+            // Multiple strategies to get the display name
+            console.log("User object keys:", Object.keys(context.user));
+            console.log("DisplayName type:", typeof context.user.displayName);
+            console.log("Username:", context.user.username);
+            console.log("FID:", context.user.fid);
+            
             if (context.user.displayName) {
               if (typeof context.user.displayName === 'function') {
                 displayName = await context.user.displayName();
-              } else {
-                displayName = String(context.user.displayName);
+                console.log("DisplayName from function:", displayName);
+              } else if (typeof context.user.displayName === 'string') {
+                displayName = context.user.displayName;
+                console.log("DisplayName from string:", displayName);
+              } else if (context.user.displayName.toString) {
+                displayName = context.user.displayName.toString();
+                console.log("DisplayName from toString:", displayName);
               }
-            } else if (context.user.username) {
-              displayName = context.user.username;
-            } else {
-              displayName = `User_${context.user.fid}`;
             }
-          } catch (e) {
-            displayName = `User_${context.user.fid}`;
+            
+            // Fallback to username if displayName didn't work
+            if (!displayName || displayName === 'UnknownUser' || displayName === 'undefined') {
+              if (context.user.username) {
+                displayName = context.user.username;
+                console.log("Using username as fallback:", displayName);
+              } else {
+                displayName = `User_${context.user.fid}`;
+                console.log("Using FID as final fallback:", displayName);
+              }
+            }
+            
+            // Clean the name
+            displayName = String(displayName).trim();
+            
+          } catch (nameError) {
+            console.error("Error extracting display name:", nameError);
+            displayName = context.user.username || `User_${context.user.fid}`;
           }
 
-          setCurrentUser({
+          const userData = {
             fid: context.user.fid,
             username: context.user.username || "",
             displayName: displayName,
             pfpUrl: context.user.pfpUrl || "",
-          });
+          };
           
-          setDebugInfo(prev => prev + ` | User: ${displayName}`);
+          console.log("Setting user data:", userData);
+          setCurrentUser(userData);
+          
+          // Update debug info
+          setDebugInfo(`Environment: ${isMobileFarcaster ? 'Mobile' : 'Desktop'} | User: ${displayName} (FID: ${context.user.fid})`);
+        } else {
+          console.log("No user context available");
+          setDebugInfo(`Environment: ${isMobileFarcaster ? 'Mobile' : 'Desktop'} | User: No context`);
         }
-      } catch (error) {
-        console.error("SDK init failed:", error);
-      }
-    };
+      } catch (error) {  
+        console.error("SDK initialization failed:", error);
+        setDebugInfo(`Environment: ${isMobileFarcaster ? 'Mobile' : 'Desktop'} | SDK Error: ${error.message}`);
+      }  
+    };  
 
-    initUser();
-  }, []);
+    initializeUser();
+  }, [isMobileFarcaster]);
 
   // Handle wagmi connection for desktop only
   useEffect(() => {
@@ -121,7 +156,7 @@ function ResultContent() {
     }
   };
 
-  // Mobile submission via server (with Farcaster ID association)
+  // Mobile submission via server (with better user name handling)
   const submitToLeaderboardMobile = async () => {
     if (!score) {
       setSubmissionStatus("❌ No score available");
@@ -131,43 +166,54 @@ function ResultContent() {
     try {
       setSubmissionStatus("📱 Preparing mobile submission...");
       
-      // Get user context safely
+      // Use the already extracted user data from currentUser state
       let userName = "AnonymousPlayer";
       let userFid = "0";
       
-      try {
-        await sdk.actions.ready();
-        const context = sdk.context;
+      if (currentUser) {
+        userFid = String(currentUser.fid || "0");
+        userName = currentUser.displayName || currentUser.username || `User_${userFid}`;
         
-        if (context?.user) {
-          userFid = String(context.user.fid || "0");
+        console.log("Using current user data:", {
+          fid: userFid,
+          displayName: currentUser.displayName,
+          username: currentUser.username,
+          finalName: userName
+        });
+      } else {
+        // Fallback: try to get user context again
+        try {
+          await sdk.actions.ready();
+          const context = sdk.context;
           
-          // Extract display name safely
-          if (context.user.displayName) {
-            try {
+          if (context?.user) {
+            userFid = String(context.user.fid || "0");
+            
+            // Try to get display name again
+            if (context.user.displayName) {
               if (typeof context.user.displayName === 'function') {
                 userName = await context.user.displayName();
               } else {
                 userName = String(context.user.displayName);
               }
-            } catch (nameErr) {
-              userName = context.user.username || `User_${userFid}`;
+            } else if (context.user.username) {
+              userName = context.user.username;
+            } else {
+              userName = `User_${userFid}`;
             }
-          } else if (context.user.username) {
-            userName = context.user.username;
-          } else {
-            userName = `User_${userFid}`;
+            
+            console.log("Fallback user extraction:", { userName, userFid });
           }
-          
-          // Clean up the name
-          userName = String(userName || `User_${userFid}`).trim();
-          if (!userName || userName === 'undefined') {
-            userName = `User_${userFid}`;
-          }
+        } catch (contextError) {
+          console.log("Fallback context extraction failed:", contextError);
+          userName = `Player_${Date.now()}`;
         }
-      } catch (contextError) {
-        console.log("Context error, using fallback name:", contextError);
-        userName = `Player_${Date.now()}`;
+      }
+      
+      // Ensure we have a clean, valid name
+      userName = String(userName || `Player_${Date.now()}`).trim();
+      if (!userName || userName === 'undefined' || userName === 'null') {
+        userName = `Player_${userFid}`;
       }
       
       setSubmissionStatus("📱 Submitting to blockchain via server...");
@@ -179,6 +225,8 @@ function ResultContent() {
         fid: userFid,
         platform: 'mobile'
       };
+
+      console.log("Submitting payload:", payload);
 
       const response = await fetch('/api/submit-score', {
         method: 'POST',
@@ -335,7 +383,7 @@ function ResultContent() {
   };
 
   // Desktop submission function
-  const submitToLeaderboardDesktop = async () => {
+  const submitToLeaderboardWeb = async () => {
     if (!score || !currentUser?.displayName) {
       setSubmissionStatus("❌ Please ensure user data is available");
       return;
@@ -370,6 +418,14 @@ function ResultContent() {
     }
   };
 
+  // Unified submit function
+  const submitToLeaderboard = () => {
+    if (isMobileFarcaster) {
+      submitToLeaderboardMobile();
+    } else {
+      submitToLeaderboardWeb();
+    }
+  };
 
   // Animation effects
   useEffect(() => {
