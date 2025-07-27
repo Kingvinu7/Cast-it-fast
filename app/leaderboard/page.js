@@ -19,14 +19,62 @@ export default function BlockchainLeaderboard() {
       setLoading(true);
       setError("");
       
-      // Initialize provider (read-only, no wallet needed)
-      const provider = new ethers.JsonRpcProvider(process.env.NEXT_PUBLIC_RPC_URL || 'https://eth.llamarpc.com');
+      // Base network RPC URLs (primary and fallbacks)
+      const baseRpcUrls = [
+        'https://mainnet.base.org',
+        'https://base.llamarpc.com',
+        'https://base-mainnet.g.alchemy.com/v2/demo',
+        process.env.NEXT_PUBLIC_RPC_URL // User's custom RPC if provided
+      ].filter(Boolean); // Remove any undefined values
       
-      // Create contract instance for reading
+      let workingProvider = null;
+      
+      // Test Base RPC endpoints
+      for (const rpcUrl of baseRpcUrls) {
+        try {
+          console.log(`Testing Base RPC: ${rpcUrl}`);
+          const testProvider = new ethers.JsonRpcProvider(rpcUrl);
+          
+          // Verify we're on Base network (chainId: 8453)
+          const network = await testProvider.getNetwork();
+          console.log(`Network chainId: ${network.chainId}`);
+          
+          if (network.chainId !== 8453n) {
+            console.log(`❌ Wrong network, expected Base (8453), got ${network.chainId}`);
+            continue;
+          }
+          
+          // Create contract instance for testing
+          const testContract = new ethers.Contract(
+            leaderboardContract.address,
+            leaderboardContract.abi,
+            testProvider
+          );
+
+          // Test if we can read the contract
+          const testTotal = await testContract.getTotalEntries();
+          console.log(`✅ Found contract on Base network, total entries:`, testTotal.toString());
+          
+          workingProvider = testProvider;
+          break;
+          
+        } catch (rpcError) {
+          console.log(`❌ Failed on ${rpcUrl}:`, rpcError.message.slice(0, 100));
+          continue;
+        }
+      }
+      
+      if (!workingProvider) {
+        throw new Error("Cannot connect to Base network. Please check your internet connection and try again.");
+      }
+      
+      console.log("✅ Successfully connected to Base network");
+      
+      // Create contract instance with working provider
       const contract = new ethers.Contract(
         leaderboardContract.address,
         leaderboardContract.abi,
-        provider
+        workingProvider
       );
 
       console.log("Fetching total entries from contract...");
@@ -40,6 +88,7 @@ export default function BlockchainLeaderboard() {
 
       if (totalCount === 0) {
         setScores([]);
+        setError(""); // Clear any previous errors
         setLoading(false);
         return;
       }
@@ -209,4 +258,4 @@ export default function BlockchainLeaderboard() {
       </div>
     </main>
   );
- }
+}
