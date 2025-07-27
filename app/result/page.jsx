@@ -112,7 +112,16 @@ function ResultContent() {
     }
   }, [isConfirmed, error]);
 
-  // Mobile submission using ONLY Farcaster SDK (no server fallback)
+  // Hybrid submission: SDK for web, server for mobile
+  const submitToLeaderboard = async () => {
+    if (isMobileFarcaster) {
+      await submitToLeaderboardMobile();
+    } else {
+      await submitToLeaderboardWeb();
+    }
+  };
+
+  // Mobile submission via server (with Farcaster ID association)
   const submitToLeaderboardMobile = async () => {
     if (!score) {
       setSubmissionStatus("❌ No score available");
@@ -120,9 +129,9 @@ function ResultContent() {
     }
 
     try {
-      setSubmissionStatus("📱 Initializing...");
+      setSubmissionStatus("📱 Preparing mobile submission...");
       
-      // Get a safe user name with extensive error handling
+      // Get user context safely
       let userName = "AnonymousPlayer";
       let userFid = "0";
       
@@ -133,17 +142,13 @@ function ResultContent() {
         if (context?.user) {
           userFid = String(context.user.fid || "0");
           
-          // Try multiple ways to get displayName
+          // Extract display name safely
           if (context.user.displayName) {
             try {
               if (typeof context.user.displayName === 'function') {
                 userName = await context.user.displayName();
-              } else if (typeof context.user.displayName === 'string') {
-                userName = context.user.displayName;
-              } else if (context.user.displayName.toString) {
-                userName = context.user.displayName.toString();
               } else {
-                userName = `${context.user.displayName}`;
+                userName = String(context.user.displayName);
               }
             } catch (nameErr) {
               userName = context.user.username || `User_${userFid}`;
@@ -154,66 +159,168 @@ function ResultContent() {
             userName = `User_${userFid}`;
           }
           
-          // Final cleanup - ensure it's a valid string
+          // Clean up the name
           userName = String(userName || `User_${userFid}`).trim();
-          if (!userName || userName === 'undefined' || userName === 'null') {
+          if (!userName || userName === 'undefined') {
             userName = `User_${userFid}`;
           }
         }
       } catch (contextError) {
-        console.log("Context error:", contextError);
+        console.log("Context error, using fallback name:", contextError);
         userName = `Player_${Date.now()}`;
       }
       
-      setSubmissionStatus(`📱 Preparing transaction for ${userName}...`);
+      setSubmissionStatus("📱 Submitting to blockchain via server...");
       
-      // Check if SDK is available
-      if (!sdk || !sdk.actions) {
-        throw new Error("Farcaster SDK not available");
+      // Submit via server API (server signs the transaction)
+      const payload = {
+        displayName: userName,
+        score: parseInt(score),
+        fid: userFid,
+        platform: 'mobile'
+      };
+
+      const response = await fetch('/api/submit-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setSubmissionStatus("🎉 Score submitted to blockchain!");
+        
+        // Show additional info for mobile users
+        setTimeout(() => {
+          setSubmissionStatus(`✅ Mobile submission confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
+        }, 2000);
+        
+        console.log("Mobile submission successful:", result);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.userMessage || `Server error: ${response.status}`);
       }
       
-      if (!sdk.actions.sendTransaction) {
-        throw new Error("sendTransaction method not available");
+    } catch (err) {
+      console.error("Mobile submission failed:", err);
+      
+      const errorMsg = String(err.message || err);
+      
+      if (errorMsg.includes('network')) {
+        setSubmissionStatus("🌐 Network error - please check connection");
+      } else if (errorMsg.includes('gas fees')) {
+        setSubmissionStatus("⛽ Gas fee issue - please try again later");
+      } else if (errorMsg.includes('Server error: 500')) {
+        setSubmissionStatus("⚠️ Server issue - please try again");
+      } else {
+        setSubmissionStatus(`❌ Mobile submission failed: ${errorMsg.slice(0, 30)}...`);
       }
       
-      // Prepare transaction data
-      let transactionData;
+      // Save for retry later
       try {
-        transactionData = leaderboardContract.interface.encodeFunctionData('submitScore', [
-          userName,
-          parseInt(score)
-        ]);
-      } catch (encodeError) {
-        console.error("Failed to encode transaction data:", encodeError);
-        throw new Error("Failed to prepare transaction data");
+        localStorage.setItem("pendingMobileScore", JSON.stringify({
+          score: parseInt(score),
+          userName: userName,
+          userFid: userFid,
+          timestamp: Date.now(),
+          error: errorMsg
+        }));
+        
+        setTimeout(() => {
+          setSubmissionStatus(submissionStatus + " (saved for retry)");
+        }, 2000);
+      } catch (saveError) {
+        console.log("Could not save for retry:", saveError);
+      }
+    }
+  };
+
+  // Web submission via Farcaster SDK (user signs their own transaction)
+  const submitToLeaderboardWeb = async () => {
+    if (!score) {
+      setSubmissionStatus("❌ No score available");
+      return;
+    }
+
+    try {
+      setSubmissionStatus("🌐 Preparing web transaction...");
+      
+      // Get user name (same logic as mobile)
+      let userName = "WebUser";
+      try {
+        await sdk.actions.ready();
+        const context = sdk.context;
+        
+        if (context?.user) {
+          if (context.user.displayName) {
+            userName = typeof context.user.displayName === 'function' 
+              ? await context.user.displayName()
+              : String(context.user.displayName);
+          } else if (context.user.username) {
+            userName = context.user.username;
+          } else {
+            userName = `User_${context.user.fid}`;
+          }
+        }
+      } catch (e) {
+        userName = `WebUser_${Date.now()}`;
       }
       
-      setSubmissionStatus("📱 Please approve the transaction...");
+      // Check if SDK transaction is available
+      if (!sdk || !sdk.actions || !sdk.actions.sendTransaction) {
+        // Fallback to server for web users too if SDK not available
+        setSubmissionStatus("🌐 SDK not available, using server fallback...");
+        
+        const payload = {
+          displayName: userName,
+          score: parseInt(score),
+          fid: currentUser?.fid || "0",
+          platform: 'web-fallback'
+        };
+
+        const response = await fetch('/api/submit-score', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setSubmissionStatus("🎉 Score submitted via server!");
+          setTimeout(() => {
+            setSubmissionStatus(`✅ Confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
+          }, 2000);
+        } else {
+          throw new Error(`Server fallback failed: ${response.status}`);
+        }
+        return;
+      }
       
-      // Send transaction via Farcaster SDK
-      const transactionRequest = {
+      setSubmissionStatus("🌐 Please approve the transaction...");
+      
+      // Prepare and send transaction via SDK (user signs)
+      const transactionData = leaderboardContract.interface.encodeFunctionData('submitScore', [
+        userName,
+        parseInt(score)
+      ]);
+      
+      const result = await sdk.actions.sendTransaction({
         to: leaderboardContract.address,
         value: "0",
         data: transactionData
-      };
-      
-      console.log("Sending transaction:", transactionRequest);
-      
-      const result = await sdk.actions.sendTransaction(transactionRequest);
-      
-      console.log("Transaction result:", result);
+      });
       
       if (result?.transactionHash) {
         setSubmissionStatus("🎉 Score submitted to blockchain!");
         setTimeout(() => {
-          setSubmissionStatus(`✅ Confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
+          setSubmissionStatus(`✅ Web transaction confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
         }, 2000);
       } else {
         throw new Error("Transaction completed but no hash returned");
       }
       
     } catch (err) {
-      console.error("Transaction failed:", err);
+      console.error("Web submission failed:", err);
       
       const errorMsg = String(err.message || err);
       
@@ -221,31 +328,8 @@ function ResultContent() {
         setSubmissionStatus("❌ Transaction cancelled by user");
       } else if (errorMsg.includes('insufficient funds')) {
         setSubmissionStatus("❌ Insufficient ETH for gas fees");
-      } else if (errorMsg.includes('not available')) {
-        setSubmissionStatus("❌ Wallet not available in this environment");
-      } else if (errorMsg.includes('primitive value')) {
-        setSubmissionStatus("❌ Data encoding error");
-      } else if (errorMsg.includes('revert')) {
-        setSubmissionStatus("❌ Contract rejected transaction");
       } else {
-        setSubmissionStatus(`❌ Transaction failed: ${errorMsg.slice(0, 40)}...`);
-      }
-      
-      // Save attempt locally for debugging
-      try {
-        const debugData = {
-          error: errorMsg,
-          score: parseInt(score),
-          timestamp: Date.now(),
-          userName: userName,
-          sdkAvailable: !!sdk,
-          sendTransactionAvailable: !!(sdk?.actions?.sendTransaction)
-        };
-        
-        localStorage.setItem("lastTransactionAttempt", JSON.stringify(debugData));
-        console.log("Debug data saved:", debugData);
-      } catch (saveError) {
-        console.log("Could not save debug data:", saveError);
+        setSubmissionStatus(`❌ Web transaction failed: ${errorMsg.slice(0, 30)}...`);
       }
     }
   };
@@ -369,21 +453,21 @@ function ResultContent() {
 
   const getLeaderboardButtonText = () => {
     if (isMobileFarcaster) {
-      return "📱 Submit Score (Mobile)";
+      return "📱 Submit Score (Mobile - Server Signed)";
     }
     
-    if (!isConnected) return "🔌 Connect Wallet First";
+    if (!isConnected) return "🌐 Submit Score (Web - User Signed)";
     if (isPending) return "📝 Preparing Transaction...";
     if (isConfirming) return "⏳ Confirming Transaction...";
     if (isConfirmed) return "✅ Score Submitted!";
-    return "📝 Submit Score to Leaderboard";
+    return "🌐 Submit Score (Web - User Signed)";
   };
 
   const isLeaderboardButtonDisabled = () => {
     if (isMobileFarcaster) {
       return !score || submissionStatus.includes("🎉");
     }
-    return !isConnected || !score || isPending || isConfirming || isConfirmed;
+    return !score || isPending || isConfirming || isConfirmed;
   };
 
   return (
@@ -486,23 +570,16 @@ function ResultContent() {
           </div>  
         </div>  
 
-        {/* Wallet Connection Status */}  
-        {!isMobileFarcaster && !isConnected && (  
-          <div className="mb-3 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">  
-            🔌 Wallet connecting... Please wait  
-          </div>  
-        )}  
-
-        {!isMobileFarcaster && isConnected && address && (  
-          <div className="mb-3 text-xs text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">  
-            ✅ Wallet Connected: {address.slice(0, 6)}...{address.slice(-4)}  
-          </div>  
-        )}  
-
-        {/* Mobile Wallet Status */}
+        {/* Mobile/Web Status */}
         {isMobileFarcaster && (
           <div className="mb-3 text-xs text-blue-400 bg-blue-400/10 rounded-lg p-2 border border-blue-400/20">
-            📱 Using Mobile Submission
+            📱 Mobile Mode: Server signs transactions (tied to your Farcaster ID)
+          </div>
+        )}
+
+        {!isMobileFarcaster && (
+          <div className="mb-3 text-xs text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
+            🌐 Web Mode: You sign your own transactions
           </div>
         )}
 
@@ -612,4 +689,4 @@ export default function ResultPage() {
       <ResultContent />
     </Suspense>
   );
- }
+}
