@@ -112,7 +112,7 @@ function ResultContent() {
     }
   }, [isConfirmed, error]);
 
-  // Mobile submission using Farcaster's built-in wallet
+  // Mobile submission using ONLY Farcaster SDK (no server fallback)
   const submitToLeaderboardMobile = async () => {
     if (!score) {
       setSubmissionStatus("❌ No score available");
@@ -120,64 +120,132 @@ function ResultContent() {
     }
 
     try {
-      setSubmissionStatus("📱 Preparing transaction...");
+      setSubmissionStatus("📱 Initializing...");
       
-      // Get user's wallet address first
-      const context = sdk.context;
-      if (!context?.user) {
-        setSubmissionStatus("❌ User not authenticated");
-        return;
+      // Get a safe user name with extensive error handling
+      let userName = "AnonymousPlayer";
+      let userFid = "0";
+      
+      try {
+        await sdk.actions.ready();
+        const context = sdk.context;
+        
+        if (context?.user) {
+          userFid = String(context.user.fid || "0");
+          
+          // Try multiple ways to get displayName
+          if (context.user.displayName) {
+            try {
+              if (typeof context.user.displayName === 'function') {
+                userName = await context.user.displayName();
+              } else if (typeof context.user.displayName === 'string') {
+                userName = context.user.displayName;
+              } else if (context.user.displayName.toString) {
+                userName = context.user.displayName.toString();
+              } else {
+                userName = `${context.user.displayName}`;
+              }
+            } catch (nameErr) {
+              userName = context.user.username || `User_${userFid}`;
+            }
+          } else if (context.user.username) {
+            userName = context.user.username;
+          } else {
+            userName = `User_${userFid}`;
+          }
+          
+          // Final cleanup - ensure it's a valid string
+          userName = String(userName || `User_${userFid}`).trim();
+          if (!userName || userName === 'undefined' || userName === 'null') {
+            userName = `User_${userFid}`;
+          }
+        }
+      } catch (contextError) {
+        console.log("Context error:", contextError);
+        userName = `Player_${Date.now()}`;
       }
-
-      // Use fallback name if currentUser not fully loaded
-      const userName = currentUser?.displayName || currentUser?.username || `User_${context.user.fid}`;
       
-      setSubmissionStatus("📱 Please sign the transaction...");
-
-      // Use Farcaster's built-in sendTransaction - this will prompt user to sign
-      const result = await sdk.actions.sendTransaction({
-        to: leaderboardContract.address,
-        value: "0",
-        data: leaderboardContract.interface.encodeFunctionData('submitScore', [
+      setSubmissionStatus(`📱 Preparing transaction for ${userName}...`);
+      
+      // Check if SDK is available
+      if (!sdk || !sdk.actions) {
+        throw new Error("Farcaster SDK not available");
+      }
+      
+      if (!sdk.actions.sendTransaction) {
+        throw new Error("sendTransaction method not available");
+      }
+      
+      // Prepare transaction data
+      let transactionData;
+      try {
+        transactionData = leaderboardContract.interface.encodeFunctionData('submitScore', [
           userName,
           parseInt(score)
-        ])
-      });
-
-      if (result.transactionHash) {
+        ]);
+      } catch (encodeError) {
+        console.error("Failed to encode transaction data:", encodeError);
+        throw new Error("Failed to prepare transaction data");
+      }
+      
+      setSubmissionStatus("📱 Please approve the transaction...");
+      
+      // Send transaction via Farcaster SDK
+      const transactionRequest = {
+        to: leaderboardContract.address,
+        value: "0",
+        data: transactionData
+      };
+      
+      console.log("Sending transaction:", transactionRequest);
+      
+      const result = await sdk.actions.sendTransaction(transactionRequest);
+      
+      console.log("Transaction result:", result);
+      
+      if (result?.transactionHash) {
         setSubmissionStatus("🎉 Score submitted to blockchain!");
         setTimeout(() => {
           setSubmissionStatus(`✅ Confirmed! Tx: ${result.transactionHash.slice(0,10)}...`);
         }, 2000);
       } else {
-        throw new Error("Transaction failed - no hash returned");
+        throw new Error("Transaction completed but no hash returned");
       }
       
     } catch (err) {
-      console.error("Mobile submission failed:", err);
+      console.error("Transaction failed:", err);
       
-      if (err.message.includes('User rejected')) {
+      const errorMsg = String(err.message || err);
+      
+      if (errorMsg.includes('User rejected') || errorMsg.includes('cancelled')) {
         setSubmissionStatus("❌ Transaction cancelled by user");
-      } else if (err.message.includes('insufficient funds')) {
+      } else if (errorMsg.includes('insufficient funds')) {
         setSubmissionStatus("❌ Insufficient ETH for gas fees");
+      } else if (errorMsg.includes('not available')) {
+        setSubmissionStatus("❌ Wallet not available in this environment");
+      } else if (errorMsg.includes('primitive value')) {
+        setSubmissionStatus("❌ Data encoding error");
+      } else if (errorMsg.includes('revert')) {
+        setSubmissionStatus("❌ Contract rejected transaction");
       } else {
-        setSubmissionStatus(`❌ Transaction failed: ${err.message.slice(0, 30)}...`);
+        setSubmissionStatus(`❌ Transaction failed: ${errorMsg.slice(0, 40)}...`);
       }
       
-      // Fallback: save locally for retry later
+      // Save attempt locally for debugging
       try {
-        localStorage.setItem("pendingScore", JSON.stringify({
+        const debugData = {
+          error: errorMsg,
           score: parseInt(score),
-          user: userName,
           timestamp: Date.now(),
-          error: err.message
-        }));
+          userName: userName,
+          sdkAvailable: !!sdk,
+          sendTransactionAvailable: !!(sdk?.actions?.sendTransaction)
+        };
         
-        setTimeout(() => {
-          setSubmissionStatus(submissionStatus + " (saved for retry)");
-        }, 2000);
-      } catch (e) {
-        console.error("Local save failed:", e);
+        localStorage.setItem("lastTransactionAttempt", JSON.stringify(debugData));
+        console.log("Debug data saved:", debugData);
+      } catch (saveError) {
+        console.log("Could not save debug data:", saveError);
       }
     }
   };
@@ -544,4 +612,4 @@ export default function ResultPage() {
       <ResultContent />
     </Suspense>
   );
-}
+ }
