@@ -370,14 +370,6 @@ function ResultContent() {
     }
   };
 
-  // Unified submit function
-  const submitToLeaderboard = () => {
-    if (isMobileFarcaster) {
-      submitToLeaderboardMobile();
-    } else {
-      submitToLeaderboardDesktop();
-    }
-  };
 
   // Animation effects
   useEffect(() => {
