@@ -44,7 +44,7 @@ function ResultContent() {
     setDebugInfo(`Environment: ${mobile ? 'Mobile' : 'Desktop'}`);
   }, []);
 
-  // Initialize user context with enhanced name extraction
+  // Initialize user context with safer object handling
   useEffect(() => {
     const initializeUser = async () => {
       try {
@@ -59,41 +59,72 @@ function ResultContent() {
           let displayName = "UnknownUser";
           
           try {
-            // Multiple strategies to get the display name
-            console.log("User object keys:", Object.keys(context.user));
-            console.log("DisplayName type:", typeof context.user.displayName);
-            console.log("Username:", context.user.username);
-            console.log("FID:", context.user.fid);
+            // Safer object inspection
+            console.log("User FID:", context.user.fid);
+            console.log("User username:", context.user.username);
             
-            if (context.user.displayName) {
-              if (typeof context.user.displayName === 'function') {
-                displayName = await context.user.displayName();
-                console.log("DisplayName from function:", displayName);
-              } else if (typeof context.user.displayName === 'string') {
-                displayName = context.user.displayName;
-                console.log("DisplayName from string:", displayName);
-              } else if (context.user.displayName.toString) {
-                displayName = context.user.displayName.toString();
-                console.log("DisplayName from toString:", displayName);
-              }
-            }
+            // Try to inspect displayName without converting it
+            const displayNameValue = context.user.displayName;
+            console.log("DisplayName exists:", !!displayNameValue);
+            console.log("DisplayName type:", typeof displayNameValue);
             
-            // Fallback to username if displayName didn't work
-            if (!displayName || displayName === 'UnknownUser' || displayName === 'undefined') {
-              if (context.user.username) {
-                displayName = context.user.username;
-                console.log("Using username as fallback:", displayName);
+            if (displayNameValue) {
+              if (typeof displayNameValue === 'string') {
+                displayName = displayNameValue;
+                console.log("✅ DisplayName from string:", displayName);
+              } else if (typeof displayNameValue === 'function') {
+                try {
+                  displayName = await displayNameValue();
+                  console.log("✅ DisplayName from function:", displayName);
+                } catch (funcError) {
+                  console.log("❌ Function call failed:", funcError.message);
+                  displayName = context.user.username || `User_${context.user.fid}`;
+                }
               } else {
-                displayName = `User_${context.user.fid}`;
-                console.log("Using FID as final fallback:", displayName);
+                // For objects, try different safe extraction methods
+                console.log("DisplayName is object, trying safe extraction...");
+                
+                try {
+                  // Try .value property
+                  if (displayNameValue.value) {
+                    displayName = String(displayNameValue.value);
+                    console.log("✅ DisplayName from .value:", displayName);
+                  } 
+                  // Try ._value property  
+                  else if (displayNameValue._value) {
+                    displayName = String(displayNameValue._value);
+                    console.log("✅ DisplayName from ._value:", displayName);
+                  }
+                  // Try .name property
+                  else if (displayNameValue.name) {
+                    displayName = String(displayNameValue.name);
+                    console.log("✅ DisplayName from .name:", displayName);
+                  }
+                  // Skip toString to avoid primitive conversion error
+                  else {
+                    console.log("❌ No safe property found, using fallback");
+                    displayName = context.user.username || `User_${context.user.fid}`;
+                  }
+                } catch (extractError) {
+                  console.log("❌ Object extraction failed:", extractError.message);
+                  displayName = context.user.username || `User_${context.user.fid}`;
+                }
               }
+            } else {
+              // No displayName, use username
+              displayName = context.user.username || `User_${context.user.fid}`;
+              console.log("✅ Using username fallback:", displayName);
             }
             
-            // Clean the name
-            displayName = String(displayName).trim();
+            // Final safety check - avoid any potential conversion issues
+            if (displayName && typeof displayName === 'string') {
+              displayName = displayName.trim();
+            } else {
+              displayName = `User_${context.user.fid}`;
+            }
             
           } catch (nameError) {
-            console.error("Error extracting display name:", nameError);
+            console.error("Error extracting display name:", nameError.message);
             displayName = context.user.username || `User_${context.user.fid}`;
           }
 
@@ -104,23 +135,23 @@ function ResultContent() {
             pfpUrl: context.user.pfpUrl || "",
           };
           
-          console.log("Setting user data:", userData);
+          console.log("✅ Final user data:", userData);
           setCurrentUser(userData);
           
           // Update debug info
-          setDebugInfo(`Environment: ${isMobileFarcaster ? 'Mobile' : 'Desktop'} | User: ${displayName} (FID: ${context.user.fid})`);
+          setDebugInfo(`Environment: Mobile | User: ${displayName} (FID: ${context.user.fid}) | ✅ Success`);
         } else {
           console.log("No user context available");
-          setDebugInfo(`Environment: ${isMobileFarcaster ? 'Mobile' : 'Desktop'} | User: No context`);
+          setDebugInfo(`Environment: Mobile | User: No context available`);
         }
       } catch (error) {  
-        console.error("SDK initialization failed:", error);
-        setDebugInfo(`Environment: ${isMobileFarcaster ? 'Mobile' : 'Desktop'} | SDK Error: ${error.message}`);
+        console.error("SDK initialization failed:", error.message);
+        setDebugInfo(`Environment: Mobile | SDK Error: ${error.message.slice(0, 30)}`);
       }  
     };  
 
     initializeUser();
-  }, [isMobileFarcaster]);
+  }, []);
 
   // Handle wagmi connection for desktop only
   useEffect(() => {
@@ -383,7 +414,7 @@ function ResultContent() {
   };
 
   // Desktop submission function
-  const submitToLeaderboardDesktop = async () => {
+  const submitToLeaderboardWeb = async () => {
     if (!score || !currentUser?.displayName) {
       setSubmissionStatus("❌ Please ensure user data is available");
       return;
@@ -418,6 +449,14 @@ function ResultContent() {
     }
   };
 
+  // Unified submit function
+  const submitToLeaderboard = () => {
+    if (isMobileFarcaster) {
+      submitToLeaderboardMobile();
+    } else {
+      submitToLeaderboardWeb();
+    }
+  };
 
   // Animation effects
   useEffect(() => {
