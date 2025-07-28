@@ -79,10 +79,26 @@ function ResultContent() {
         console.log("🧠 Farcaster Context:", context);
 
         if (context?.user) {
-          // Get user info - displayName is optional string property
-          const displayName = context.user.displayName || 
-                             context.user.username || 
-                             `Player${context.user.fid}`;
+          // Safely extract user info - handle potential non-string values
+          let displayName;
+          
+          // Try to get displayName safely
+          try {
+            if (context.user.displayName && typeof context.user.displayName === 'string') {
+              displayName = context.user.displayName;
+            } else if (context.user.displayName && context.user.displayName.toString) {
+              displayName = context.user.displayName.toString();
+            } else if (context.user.username && typeof context.user.username === 'string') {
+              displayName = context.user.username;
+            } else if (context.user.username && context.user.username.toString) {
+              displayName = context.user.username.toString();
+            } else {
+              displayName = `Player${context.user.fid || 'Unknown'}`;
+            }
+          } catch (err) {
+            console.warn("Error extracting displayName:", err);
+            displayName = context.user.username || `Player${context.user.fid || 'Unknown'}`;
+          }
 
           setCurrentUser({
             fid: context.user.fid,
@@ -125,7 +141,21 @@ function ResultContent() {
       setSubmissionStatus("📝 Submitting to leaderboard...");
 
       const scoreValue = parseInt(score);
-      const displayName = String(currentUser.displayName).trim();
+      
+      // Safely convert displayName to string
+      let displayName;
+      try {
+        if (typeof currentUser.displayName === 'string') {
+          displayName = currentUser.displayName.trim();
+        } else if (currentUser.displayName && currentUser.displayName.toString) {
+          displayName = currentUser.displayName.toString().trim();
+        } else {
+          displayName = (currentUser.username || `Player${currentUser.fid || 'Unknown'}`).toString().trim();
+        }
+      } catch (err) {
+        console.error("Error converting displayName to string:", err);
+        displayName = `Player${currentUser.fid || 'Unknown'}`;
+      }
 
       // Validate inputs
       if (isNaN(scoreValue) || scoreValue < 0) {
