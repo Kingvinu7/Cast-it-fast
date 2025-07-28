@@ -349,7 +349,7 @@ function ResultContent() {
 
     const shareText = `I scored ${numScore} points and got ${numCorrect}/15 questions right on Cast It Fast! Can you beat my score? 🎮`;
     const encodedText = encodeURIComponent(shareText);
-    const miniappUrl = encodeURIComponent("https://cast-it-fast.vercel.app");
+    const miniappUrl = encodeURIComponent("https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast");
     const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`;
 
     // Try to use Farcaster SDK share if available, otherwise fallback to URL
