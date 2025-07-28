@@ -7,6 +7,30 @@ import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt 
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
 
+// SDK validation function
+const validateSDK = () => {
+  if (!sdk) {
+    throw new Error("Farcaster SDK not available");
+  }
+  if (!sdk.actions || !sdk.actions.ready) {
+    throw new Error("Farcaster SDK actions not available");
+  }
+  return true;
+};
+
+// Safe user display component
+const SafeUserDisplay = ({ user }) => {
+  if (!user) return null;
+  
+  const displayName = user.displayName || user.username || `Player${user.fid}` || 'Anonymous';
+  
+  return (
+    <div className="mb-3 text-sm text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
+      👋 Hey {displayName}!
+    </div>
+  );
+};
+
 // Separate component that uses useSearchParams
 function ResultContent() {
   const searchParams = useSearchParams();
@@ -17,6 +41,8 @@ function ResultContent() {
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [submissionStatus, setSubmissionStatus] = useState("");
+  const [sdkReady, setSdkReady] = useState(false);
+  const [initError, setInitError] = useState(null);
   const [safeAreaInsets, setSafeAreaInsets] = useState({
     top: 0,
     bottom: 0,
@@ -68,48 +94,56 @@ function ResultContent() {
     }
   }, [isConfirmed, isWriteError, receiptError, writeError]);
 
-  // Initialize Farcaster SDK - with better displayName handling
+  // Initialize Farcaster SDK with comprehensive error handling
   useEffect(() => {
     const initializeFarcaster = async () => {
       try {
-        // Initialize SDK - this should work in Farcaster mobile app
+        // Validate SDK first
+        validateSDK();
+
+        // Check if we're in a Mini App environment
+        const isInMiniApp = await sdk.isInMiniApp();
+        if (!isInMiniApp) {
+          console.warn("Not running in a Farcaster Mini App environment");
+          return;
+        }
+
+        // Initialize SDK properly
         await sdk.actions.ready();
         
-        const context = sdk.context;
+        // Get context asynchronously
+        const context = await sdk.context;
         console.log("🧠 Farcaster Context:", context);
 
         if (context?.user) {
-          // Fix the displayName issue - avoid any function calls or symbol access
-          let displayName;
-          
-          try {
-            // Direct property access only - no function calls
-            if (context.user.displayName && typeof context.user.displayName === 'string') {
-              displayName = context.user.displayName;
-            } else if (context.user.username && typeof context.user.username === 'string') {
-              displayName = context.user.username;
-            } else {
-              displayName = `Player${context.user.fid}`;
-            }
-          } catch (nameError) {
-            console.warn("Error getting display name:", nameError);
-            displayName = `Player${context.user.fid}`;
+          // Safe property access with proper fallbacks
+          const user = context.user;
+          let displayName = "Anonymous Player";
+
+          // Safely extract displayName with multiple fallbacks
+          if (user.displayName && typeof user.displayName === 'string' && user.displayName.trim()) {
+            displayName = String(user.displayName).trim();
+          } else if (user.username && typeof user.username === 'string' && user.username.trim()) {
+            displayName = String(user.username).trim();
+          } else if (user.fid) {
+            displayName = `Player${user.fid}`;
           }
 
-          // Ensure displayName is a clean string
-          displayName = String(displayName).replace(/[^\w\s-_.]/g, '').trim();
+          // Clean displayName to prevent conversion errors
+          displayName = displayName.replace(/[^\w\s-_.]/g, '').substring(0, 30).trim();
+          
           if (!displayName) {
-            displayName = `Player${context.user.fid}`;
+            displayName = `Player${user.fid || Date.now()}`;
           }
 
           setCurrentUser({
-            fid: context.user.fid,
-            username: context.user.username,
+            fid: user.fid || 0,
+            username: user.username || '',
             displayName: displayName,
-            pfpUrl: context.user.pfpUrl,
+            pfpUrl: user.pfpUrl || '',
           });
 
-          console.log("✅ User loaded:", { displayName, fid: context.user.fid });
+          console.log("✅ User loaded:", { displayName, fid: user.fid });
         }
 
         // Set safe area insets for mobile
@@ -118,9 +152,20 @@ function ResultContent() {
           console.log("📱 Safe area insets:", context.client.safeAreaInsets);
         }
 
+        setSdkReady(true);
+
       } catch (error) {
         console.error("Farcaster SDK error:", error);
-        // Don't set fallback user - this should only run in Farcaster
+        setInitError(error.message);
+        setSdkReady(false);
+        
+        // Set a fallback user to prevent blocking
+        setCurrentUser({
+          fid: 0,
+          username: 'anonymous',
+          displayName: 'Anonymous Player',
+          pfpUrl: '',
+        });
       }
     };
 
@@ -142,11 +187,11 @@ function ResultContent() {
     try {
       setSubmissionStatus("📝 Submitting to leaderboard...");
 
-      // Fix type conversion issues
-      const scoreValue = Number(score);
-      const displayName = String(currentUser.displayName).trim();
+      // Ensure safe type conversion
+      const scoreValue = Math.floor(Number(score));
+      const displayName = String(currentUser.displayName || '').trim();
 
-      // Validate inputs more strictly
+      // Validate inputs
       if (!Number.isInteger(scoreValue) || scoreValue < 0 || scoreValue > 10000) {
         setSubmissionStatus("❌ Invalid score value");
         console.error("Invalid score:", scoreValue);
@@ -159,14 +204,18 @@ function ResultContent() {
         return;
       }
 
-      // Clean the display name further - remove any special characters that might cause issues
-      const cleanDisplayName = displayName.replace(/[^\w\s-_.]/g, '').substring(0, 30).trim();
+      // Additional cleaning for contract safety
+      const cleanDisplayName = displayName
+        .replace(/[^\w\s-_.]/g, '')
+        .substring(0, 30)
+        .trim();
+        
       if (!cleanDisplayName) {
         setSubmissionStatus("❌ Invalid player name after cleaning");
         return;
       }
 
-      // Ensure contract address and ABI are valid
+      // Validate contract configuration
       if (!leaderboardContract?.address || !leaderboardContract?.abi) {
         setSubmissionStatus("❌ Contract configuration error");
         console.error("Contract config:", leaderboardContract);
@@ -176,18 +225,15 @@ function ResultContent() {
       console.log("Submitting with cleaned data:", { 
         displayName: cleanDisplayName, 
         scoreValue, 
-        address: leaderboardContract.address,
-        originalDisplayName: currentUser.displayName
+        address: leaderboardContract.address
       });
 
-      // Convert to BigInt if needed for the contract
-      const scoreAsBigInt = BigInt(scoreValue);
-
+      // Use regular number for better compatibility
       const result = await writeContract({
         address: leaderboardContract.address,
         abi: leaderboardContract.abi,
         functionName: "submitScore",
-        args: [cleanDisplayName, scoreAsBigInt], // Use BigInt for score
+        args: [cleanDisplayName, scoreValue], // Use regular number instead of BigInt
       });
 
       console.log("Write contract result:", result);
@@ -196,52 +242,30 @@ function ResultContent() {
     } catch (err) {
       console.error("Submission error details:", err);
       
-      // More specific error handling
-      if (err.message?.includes("User rejected") || err.message?.includes("user rejected")) {
+      // Enhanced error handling
+      const errorMessage = err?.message || String(err);
+      
+      if (errorMessage.includes("User rejected") || errorMessage.includes("user rejected")) {
         setSubmissionStatus("❌ Transaction cancelled by user");
-      } else if (err.message?.includes("insufficient funds")) {
+      } else if (errorMessage.includes("insufficient funds")) {
         setSubmissionStatus("❌ Insufficient funds for gas");
-      } else if (err.message?.includes("execution reverted")) {
+      } else if (errorMessage.includes("execution reverted")) {
         setSubmissionStatus("❌ Contract execution failed");
-      } else if (err.message?.includes("network")) {
+      } else if (errorMessage.includes("network")) {
         setSubmissionStatus("❌ Network connection error");
-      } else if (err.message?.includes("Cannot convert object to primitive")) {
-        setSubmissionStatus("❌ Data conversion error - trying again...");
-        // Retry with just regular number
-        setTimeout(() => {
-          retrySubmissionWithNumber(cleanDisplayName, scoreValue);
-        }, 1000);
-        return;
+      } else if (errorMessage.includes("Cannot convert object to primitive")) {
+        setSubmissionStatus("❌ Data format error");
+        console.error("Primitive conversion error - check data types");
       } else if (err.code === 4001) {
         setSubmissionStatus("❌ Transaction rejected");
       } else {
         setSubmissionStatus("❌ Submission failed - please try again");
         console.error("Detailed error:", {
-          message: err.message,
+          message: errorMessage,
           code: err.code,
           data: err.data,
         });
       }
-    }
-  };
-
-  // Retry function with regular number instead of BigInt
-  const retrySubmissionWithNumber = async (cleanDisplayName, scoreValue) => {
-    try {
-      setSubmissionStatus("🔄 Retrying submission...");
-      
-      const result = await writeContract({
-        address: leaderboardContract.address,
-        abi: leaderboardContract.abi,
-        functionName: "submitScore",
-        args: [cleanDisplayName, scoreValue], // Use regular number
-      });
-
-      console.log("Retry successful:", result);
-      setSubmissionStatus("⏳ Confirming transaction...");
-    } catch (retryErr) {
-      console.error("Retry also failed:", retryErr);
-      setSubmissionStatus("❌ Submission failed after retry");
     }
   };
 
@@ -426,12 +450,15 @@ function ResultContent() {
           </div>
         </div>
 
-        {/* User Info */}
-        {currentUser && (
-          <div className="mb-3 text-sm text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
-            👋 Hey {currentUser.displayName}!
+        {/* SDK Error Display */}
+        {initError && (
+          <div className="mb-3 text-sm text-red-400 bg-red-400/10 rounded-lg p-2 border border-red-400/20">
+            ⚠️ SDK Error: {initError}
           </div>
         )}
+
+        {/* User Info - Using Safe Component */}
+        <SafeUserDisplay user={currentUser} />
 
         {/* Wallet Status */}
         {isConnected && address ? (
@@ -534,4 +561,5 @@ export default function ResultPage() {
       <ResultContent />
     </Suspense>
   );
-} 
+}
+       
