@@ -16,7 +16,12 @@ function ResultContent() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [submissionStatus, setSubmissionStatus] = useState("");
+  const [safeAreaInsets, setSafeAreaInsets] = useState({
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0
+  });
   const [isSDKReady, setIsSDKReady] = useState(false);
 
   // Wagmi hooks
@@ -64,17 +69,17 @@ function ResultContent() {
     }
   }, [isConfirmed, isWriteError, receiptError, writeError]);
 
-  // Initialize Farcaster SDK with better error handling
+  // Initialize Farcaster SDK with proper implementation based on official docs
   useEffect(() => {
     const initializeUser = async () => {
       try {
-        // Check if we're in a Farcaster environment
+        // Check if we're in a browser environment
         if (typeof window === 'undefined') return;
         
         // Initialize SDK with timeout
         const initPromise = sdk.actions.ready();
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('SDK timeout')), 5000)
+          setTimeout(() => reject(new Error('SDK initialization timeout')), 5000)
         );
 
         await Promise.race([initPromise, timeoutPromise]);
@@ -84,30 +89,58 @@ function ResultContent() {
         if (context?.user) {
           console.log("🧠 Farcaster User Context:", context.user);
 
-          let displayName;
-          try {
-            // Handle both async and sync displayName
-            if (typeof context.user.displayName === 'function') {
-              displayName = await context.user.displayName();
-            } else {
-              displayName = context.user.displayName;
-            }
-          } catch (error) {
-            console.warn("Failed to get display name:", error);
-            displayName = context.user.username || `User${context.user.fid}`;
-          }
+          // Based on official docs, these are all optional string properties
+          const displayName = context.user.displayName || 
+                             context.user.username || 
+                             `User${context.user.fid}`;
 
-          setCurrentUser({
+          const userInfo = {
             fid: context.user.fid,
             username: context.user.username,
-            displayName,
+            displayName: displayName,
             pfpUrl: context.user.pfpUrl,
-          });
+            // Additional context info if available
+            location: context.location?.type || 'unknown'
+          };
+
+          setCurrentUser(userInfo);
+          
+          // Set safe area insets if available
+          if (context.client?.safeAreaInsets) {
+            setSafeAreaInsets(context.client.safeAreaInsets);
+            console.log("📱 Safe area insets:", context.client.safeAreaInsets);
+          }
+          
+          console.log("✅ User initialized successfully:", userInfo);
+        } else {
+          console.warn("No user context available");
+          // In development/testing, create a fallback user
+          if (process.env.NODE_ENV === 'development') {
+            setCurrentUser({
+              fid: 12345,
+              username: 'testuser',
+              displayName: 'Test Player',
+              pfpUrl: null,
+              location: 'development'
+            });
+            console.log("🔄 Using development fallback user");
+          }
         }
       } catch (error) {
         console.error("Farcaster SDK initialization failed:", error);
         setIsSDKReady(false);
-        // Don't set currentUser but don't show error to user
+        
+        // Only create fallback in development
+        if (process.env.NODE_ENV === 'development') {
+          setCurrentUser({
+            fid: Date.now(),
+            username: 'fallback_user',
+            displayName: 'Fallback Player',
+            pfpUrl: null,
+            location: 'fallback'
+          });
+          console.log("🔄 Using fallback user for development");
+        }
       }
     };
 
@@ -278,7 +311,15 @@ function ResultContent() {
   };
 
   return (
-    <main className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center p-3 relative overflow-hidden">
+    <main 
+      className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center p-3 relative overflow-hidden"
+      style={{
+        paddingTop: Math.max(12, safeAreaInsets.top),
+        paddingBottom: Math.max(12, safeAreaInsets.bottom),
+        paddingLeft: Math.max(12, safeAreaInsets.left),
+        paddingRight: Math.max(12, safeAreaInsets.right),
+      }}
+    >
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden">
         {[...Array(12)].map((_, i) => (
