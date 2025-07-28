@@ -1,14 +1,27 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
 
+// Create a loading component
+function LoadingSpinner() {
+  return (
+    <div className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+        <p>Loading results...</p>
+      </div>
+    </div>
+  );
+}
+
 // Separate component that uses useSearchParams
 function ResultContent() {
+  const { useSearchParams } = require("next/navigation");
   const searchParams = useSearchParams();
   const router = useRouter();
   const score = searchParams.get("score");
@@ -17,285 +30,72 @@ function ResultContent() {
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [submissionStatus, setSubmissionStatus] = useState("");
-  const [safeAreaInsets, setSafeAreaInsets] = useState({
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0
-  });
 
-  // Wagmi hooks
   const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
-  const { 
-    writeContract, 
-    data: hash, 
-    isPending, 
-    error: writeError,
-    isError: isWriteError 
-  } = useWriteContract();
-  
-  const { 
-    isLoading: isConfirming, 
-    isSuccess: isConfirmed,
-    error: receiptError 
-  } = useWaitForTransactionReceipt({
+  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   });
 
-  // Auto-connect wallet when component loads
   useEffect(() => {
-    const connectWallet = async () => {
+    // Initialize SDK and get user info
+    const initializeUser = async () => {
       try {
-        if (!isConnected && connectors.length > 0) {
-          await connect({ connector: connectors[0] });
+        if (sdk.context) {
+          const user = sdk.context.user;
+          setCurrentUser(user);
         }
       } catch (error) {
-        console.error("Failed to connect wallet:", error);
+        console.error("Error getting user info:", error);
       }
     };
 
-    connectWallet();
-  }, [isConnected, connectors, connect]);
-
-  // Handle transaction confirmation
-  useEffect(() => {
-    if (isConfirmed) {
-      setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
-    } else if (isWriteError || receiptError) {
-      setSubmissionStatus("❌ Failed to submit score. Please try again.");
-      console.error("Transaction error:", writeError || receiptError);
-    }
-  }, [isConfirmed, isWriteError, receiptError, writeError]);
-
-  // Initialize Farcaster SDK - with better displayName handling
-  useEffect(() => {
-    const initializeFarcaster = async () => {
-      try {
-        // Initialize SDK - this should work in Farcaster mobile app
-        await sdk.actions.ready();
-        
-        const context = sdk.context;
-        console.log("🧠 Farcaster Context:", context);
-
-        if (context?.user) {
-          // Fix the displayName issue - avoid any function calls or symbol access
-          let displayName;
-          
-          try {
-            // Direct property access only - no function calls
-            if (context.user.displayName && typeof context.user.displayName === 'string') {
-              displayName = context.user.displayName;
-            } else if (context.user.username && typeof context.user.username === 'string') {
-              displayName = context.user.username;
-            } else {
-              displayName = `Player${context.user.fid}`;
-            }
-          } catch (nameError) {
-            console.warn("Error getting display name:", nameError);
-            displayName = `Player${context.user.fid}`;
-          }
-
-          // Ensure displayName is a clean string
-          displayName = String(displayName).replace(/[^\w\s-_.]/g, '').trim();
-          if (!displayName) {
-            displayName = `Player${context.user.fid}`;
-          }
-
-          setCurrentUser({
-            fid: context.user.fid,
-            username: context.user.username,
-            displayName: displayName,
-            pfpUrl: context.user.pfpUrl,
-          });
-
-          console.log("✅ User loaded:", { displayName, fid: context.user.fid });
-        }
-
-        // Set safe area insets for mobile
-        if (context?.client?.safeAreaInsets) {
-          setSafeAreaInsets(context.client.safeAreaInsets);
-          console.log("📱 Safe area insets:", context.client.safeAreaInsets);
-        }
-
-      } catch (error) {
-        console.error("Farcaster SDK error:", error);
-        // Don't set fallback user - this should only run in Farcaster
-      }
-    };
-
-    initializeFarcaster();
-  }, []);
-
-  // Submit to leaderboard with fixed type conversion
-  const submitToLeaderboard = async () => {
-    if (!isConnected) {
-      setSubmissionStatus("❌ Wallet not connected");
-      return;
-    }
-
-    if (!score || !currentUser?.displayName) {
-      setSubmissionStatus("❌ Missing score or user data");
-      return;
-    }
-
-    try {
-      setSubmissionStatus("📝 Submitting to leaderboard...");
-
-      // Fix type conversion issues
-      const scoreValue = Number(score);
-      const displayName = String(currentUser.displayName).trim();
-
-      // Validate inputs more strictly
-      if (!Number.isInteger(scoreValue) || scoreValue < 0 || scoreValue > 10000) {
-        setSubmissionStatus("❌ Invalid score value");
-        console.error("Invalid score:", scoreValue);
-        return;
-      }
-
-      if (!displayName || displayName.length === 0 || displayName.length > 50) {
-        setSubmissionStatus("❌ Invalid player name");
-        console.error("Invalid displayName:", displayName);
-        return;
-      }
-
-      // Clean the display name further - remove any special characters that might cause issues
-      const cleanDisplayName = displayName.replace(/[^\w\s-_.]/g, '').substring(0, 30).trim();
-      if (!cleanDisplayName) {
-        setSubmissionStatus("❌ Invalid player name after cleaning");
-        return;
-      }
-
-      // Ensure contract address and ABI are valid
-      if (!leaderboardContract?.address || !leaderboardContract?.abi) {
-        setSubmissionStatus("❌ Contract configuration error");
-        console.error("Contract config:", leaderboardContract);
-        return;
-      }
-
-      console.log("Submitting with cleaned data:", { 
-        displayName: cleanDisplayName, 
-        scoreValue, 
-        address: leaderboardContract.address,
-        originalDisplayName: currentUser.displayName
-      });
-
-      // Convert to BigInt if needed for the contract
-      const scoreAsBigInt = BigInt(scoreValue);
-
-      const result = await writeContract({
-        address: leaderboardContract.address,
-        abi: leaderboardContract.abi,
-        functionName: "submitScore",
-        args: [cleanDisplayName, scoreAsBigInt], // Use BigInt for score
-      });
-
-      console.log("Write contract result:", result);
-      setSubmissionStatus("⏳ Confirming transaction...");
-
-    } catch (err) {
-      console.error("Submission error details:", err);
-      
-      // More specific error handling
-      if (err.message?.includes("User rejected") || err.message?.includes("user rejected")) {
-        setSubmissionStatus("❌ Transaction cancelled by user");
-      } else if (err.message?.includes("insufficient funds")) {
-        setSubmissionStatus("❌ Insufficient funds for gas");
-      } else if (err.message?.includes("execution reverted")) {
-        setSubmissionStatus("❌ Contract execution failed");
-      } else if (err.message?.includes("network")) {
-        setSubmissionStatus("❌ Network connection error");
-      } else if (err.message?.includes("Cannot convert object to primitive")) {
-        setSubmissionStatus("❌ Data conversion error - trying again...");
-        // Retry with just regular number
-        setTimeout(() => {
-          retrySubmissionWithNumber(cleanDisplayName, scoreValue);
-        }, 1000);
-        return;
-      } else if (err.code === 4001) {
-        setSubmissionStatus("❌ Transaction rejected");
-      } else {
-        setSubmissionStatus("❌ Submission failed - please try again");
-        console.error("Detailed error:", {
-          message: err.message,
-          code: err.code,
-          data: err.data,
-        });
-      }
-    }
-  };
-
-  // Retry function with regular number instead of BigInt
-  const retrySubmissionWithNumber = async (cleanDisplayName, scoreValue) => {
-    try {
-      setSubmissionStatus("🔄 Retrying submission...");
-      
-      const result = await writeContract({
-        address: leaderboardContract.address,
-        abi: leaderboardContract.abi,
-        functionName: "submitScore",
-        args: [cleanDisplayName, scoreValue], // Use regular number
-      });
-
-      console.log("Retry successful:", result);
-      setSubmissionStatus("⏳ Confirming transaction...");
-    } catch (retryErr) {
-      console.error("Retry also failed:", retryErr);
-      setSubmissionStatus("❌ Submission failed after retry");
-    }
-  };
-
-  // Save game history
-  useEffect(() => {
-    const saveGameHistory = () => {
-      if (!score || !correct) return;
-
-      try {
-        const numScore = parseInt(score) || 0;
-        const numCorrect = parseInt(correct) || 0;
-        const accuracy = Math.round((numCorrect / 15) * 100);
-
-        if (numScore === 0 && numCorrect === 0) return;
-
-        const gameResult = {
-          score: numScore,
-          correct: numCorrect,
-          accuracy: accuracy,
-          date: new Date().toISOString()
-        };
-
-        const existingHistory = JSON.parse(localStorage.getItem("playHistory") || "[]");
-        
-        // Check for duplicates
-        const isDuplicate = existingHistory.some(entry =>
-          entry.score === gameResult.score &&
-          entry.correct === gameResult.correct &&
-          Math.abs(new Date(entry.date).getTime() - new Date(gameResult.date).getTime()) < 5000
-        );
-
-        if (!isDuplicate) {
-          const updatedHistory = [gameResult, ...existingHistory].slice(0, 10);
-          localStorage.setItem("playHistory", JSON.stringify(updatedHistory));
-          console.log("Game saved:", gameResult);
-        }
-      } catch (error) {
-        console.error("Failed to save game:", error);
-      }
-    };
-
-    // Trigger animations
+    initializeUser();
+    
+    // Trigger animations on mount
     setShowConfetti(true);
     setTimeout(() => setAnimateScore(true), 500);
-    
-    // Save game
-    saveGameHistory();
-  }, [score, correct]);
+  }, []);
+
+  const submitScore = async () => {
+    if (!isConnected || !currentUser) {
+      setSubmissionStatus("Please connect wallet and ensure you're logged in");
+      return;
+    }
+
+    try {
+      setSubmissionStatus("Submitting score...");
+      
+      await writeContract({
+        address: leaderboardContract.address,
+        abi: leaderboardContract.abi,
+        functionName: 'submitScore',
+        args: [
+          currentUser.fid,
+          currentUser.username || "Anonymous",
+          BigInt(score || 0),
+          BigInt(correct || 0)
+        ],
+      });
+    } catch (error) {
+      console.error("Error submitting score:", error);
+      setSubmissionStatus("Error submitting score. Please try again.");
+    }
+  };
+
+  useEffect(() => {
+    if (isConfirmed) {
+      setSubmissionStatus("Score submitted successfully!");
+    } else if (isPending || isConfirming) {
+      setSubmissionStatus("Transaction processing...");
+    }
+  }, [isConfirmed, isPending, isConfirming]);
 
   const getPerformanceMessage = (score, correct) => {
     const numScore = parseInt(score) || 0;
     const numCorrect = parseInt(correct) || 0;
     const accuracy = Math.round((numCorrect / 15) * 100);
-
+    
     if (numScore >= 100 && accuracy >= 90) return { message: "Perfect Master! 🏆", emoji: "👑", color: "text-yellow-400" };
     if (numScore >= 80 && accuracy >= 80) return { message: "Outstanding! 🌟", emoji: "⭐", color: "text-yellow-300" };
     if (numScore >= 70 && accuracy >= 70) return { message: "Excellent Work! 🎯", emoji: "🎯", color: "text-green-400" };
@@ -305,11 +105,13 @@ function ResultContent() {
     return { message: "Keep Practicing! 💪", emoji: "🎯", color: "text-red-400" };
   };
 
+  const performance = getPerformanceMessage(score, correct);
+
   const getRank = (score, correct) => {
     const numScore = parseInt(score) || 0;
     const numCorrect = parseInt(correct) || 0;
     const accuracy = Math.round((numCorrect / 15) * 100);
-
+    
     if (numScore >= 100 && accuracy >= 90) return 'Legend';
     if (numScore >= 80 && accuracy >= 80) return 'Master';
     if (numScore >= 70 && accuracy >= 70) return 'Expert';
@@ -319,218 +121,154 @@ function ResultContent() {
     return 'Beginner';
   };
 
-  const shareToFarcaster = () => {
-    const numScore = parseInt(score) || 0;
-    const numCorrect = parseInt(correct) || 0;
-
-    const shareText = `I scored ${numScore} points and got ${numCorrect}/15 questions right on Cast It Fast! Can you beat my score? 🎮`;
-    const encodedText = encodeURIComponent(shareText);
-    const miniappUrl = encodeURIComponent("https://cast-it-fast.vercel.app");
-    const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`;
-
-    // Try to use Farcaster SDK share if available, otherwise fallback to URL
-    try {
-      if (sdk.actions.openUrl) {
-        sdk.actions.openUrl(farcasterUrl);
-      } else {
-        window.open(farcasterUrl, '_blank');
-      }
-    } catch (error) {
-      window.open(farcasterUrl, '_blank');
-    }
-  };
-
-  const performance = getPerformanceMessage(score, correct);
-
   return (
-    <main 
-      className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center relative overflow-hidden"
-      style={{
-        paddingTop: Math.max(16, safeAreaInsets.top + 8),
-        paddingBottom: Math.max(16, safeAreaInsets.bottom + 8),
-        paddingLeft: Math.max(16, safeAreaInsets.left + 8),
-        paddingRight: Math.max(16, safeAreaInsets.right + 8),
-      }}
-    >
-      {/* Animated Background */}
+    <main className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center p-3 relative overflow-hidden">
+      
+      {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden">
-        {[...Array(15)].map((_, i) => (
+        {[...Array(12)].map((_, i) => (
           <div
             key={i}
-            className="absolute animate-pulse opacity-10 text-2xl"
+            className={`absolute animate-float opacity-20 text-lg ${showConfetti ? 'animate-bounce' : ''}`}
             style={{
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
-              animationDuration: `${2 + Math.random() * 2}s`
+              animationDelay: `${Math.random() * 2}s`,
+              animationDuration: `${3 + Math.random() * 2}s`
             }}
           >
-            {['🌟', '✨', '🎉', '🎊', '💫', '🎯', '🏆'][Math.floor(Math.random() * 7)]}
+            {['🌟', '✨', '🎉', '🎊', '💫'][Math.floor(Math.random() * 5)]}
           </div>
         ))}
       </div>
 
-      <div className="relative z-10 text-center max-w-sm mx-auto w-full px-4">
-        {/* Trophy Animation */}
-        <div className={`text-4xl mb-3 transform transition-all duration-1000 ${
+      <div className="relative z-10 text-center max-w-sm mx-auto w-full flex flex-col justify-center min-h-screen py-2">
+        
+        {/* Main Trophy Animation */}
+        <div className={`text-3xl sm:text-4xl mb-2 transform transition-all duration-1000 ${
           showConfetti ? 'animate-bounce scale-100' : 'scale-0'
         }`}>
           {performance.emoji}
         </div>
 
-        {/* Title */}
-        <h1 className={`text-2xl font-bold mb-2 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-transparent transform transition-all duration-1000 ${
+        {/* Game Over Title */}
+        <h1 className={`text-xl sm:text-2xl font-bold mb-2 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-transparent transform transition-all duration-1000 ${
           showConfetti ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
           Game Complete!
         </h1>
 
         {/* Performance Message */}
-        <div className={`text-lg font-semibold mb-4 ${performance.color} transform transition-all duration-1000 delay-300 ${
+        <div className={`text-base sm:text-lg font-semibold mb-3 ${performance.color} transform transition-all duration-1000 delay-300 ${
           showConfetti ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
           {performance.message}
         </div>
 
         {/* Score Display */}
-        <div className={`bg-white/10 backdrop-blur-sm rounded-xl p-4 mb-4 border border-white/20 shadow-2xl transform transition-all duration-1000 delay-500 ${
+        <div className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 mb-3 border border-white/20 shadow-2xl transform transition-all duration-1000 delay-500 ${
           animateScore ? 'scale-100 opacity-100' : 'scale-90 opacity-0'
         }`}>
-          <div className="text-xs mb-1 opacity-80">Final Score</div>
-          <div className={`text-4xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent transform transition-all duration-500 ${
+          <div className="text-xs mb-1 opacity-80">Your Final Score</div>
+          <div className={`text-3xl sm:text-4xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent transform transition-all duration-500 ${
             animateScore ? 'scale-100' : 'scale-0'
           }`}>
             {score || 0}
           </div>
-          <div className="text-xs opacity-60 mt-1">points</div>
+          <div className="text-xs opacity-60">points</div>
         </div>
 
-        {/* Stats Grid */}
-        <div className={`grid grid-cols-3 gap-2 mb-4 transform transition-all duration-1000 delay-700 ${
+        {/* Stats Cards */}
+        <div className={`grid grid-cols-3 gap-1.5 mb-3 transform transition-all duration-1000 delay-700 ${
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-            <div className="text-lg mb-1">🎯</div>
-            <div className="text-xs opacity-80 mb-1">Questions</div>
-            <div className="text-sm font-bold">15</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">
+            <div className="text-sm mb-0.5">🎯</div>
+            <div className="text-xs opacity-80">Questions</div>
+            <div className="text-xs font-bold">15</div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-            <div className="text-lg mb-1">✅</div>
-            <div className="text-xs opacity-80 mb-1">Correct</div>
-            <div className="text-sm font-bold">{correct || 0}</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">
+            <div className="text-sm mb-0.5">⭐</div>
+            <div className="text-xs opacity-80">Accuracy</div>
+            <div className="text-xs font-bold">{Math.round(((parseInt(correct) || 0) / 15) * 100)}%</div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-            <div className="text-lg mb-1">🏆</div>
-            <div className="text-xs opacity-80 mb-1">Rank</div>
-            <div className="text-xs font-bold">{getRank(score, correct)}</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">
+            <div className="text-sm mb-0.5">🏆</div>
+            <div className="text-xs opacity-80">Rank</div>
+            <div className="text-xs font-bold">
+              {getRank(score, correct)}
+            </div>
           </div>
         </div>
 
-        {/* User Info */}
+        {/* Leaderboard Submit Button */}
         {currentUser && (
-          <div className="mb-3 text-sm text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
-            👋 Hey {currentUser.displayName}!
-          </div>
-        )}
-
-        {/* Wallet Status */}
-        {isConnected && address ? (
-          <div className="mb-3 text-xs text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
-            ✅ Wallet: {address.slice(0, 6)}...{address.slice(-4)}
-          </div>
-        ) : (
-          <div className="mb-3 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">
-            🔌 Connecting wallet...
+          <div className={`mb-3 transform transition-all duration-1000 delay-800 ${
+            animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+          }`}>
+            <button
+              onClick={submitScore}
+              disabled={isPending || isConfirming}
+              className="group bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
+            >
+              <span className="mr-2">🏆</span>
+              {isPending || isConfirming ? "Submitting..." : "Submit to Leaderboard"}
+            </button>
+            {submissionStatus && (
+              <p className="text-xs mt-1 opacity-80">{submissionStatus}</p>
+            )}
           </div>
         )}
 
         {/* Action Buttons */}
-        <div className={`space-y-2 transform transition-all duration-1000 delay-1000 ${
+        <div className={`space-y-1.5 transform transition-all duration-1000 delay-1000 ${
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
-          
-          {/* Play Again */}
           <button
             onClick={() => router.push("/game")}
-            className="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
+            className="group bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
           >
-            🎮 Play Again
+            <span className="mr-2">🎮</span>
+            Play Again
+            <span className="ml-2">↻</span>
           </button>
-
-          {/* Share Button */}
-          <button
-            onClick={shareToFarcaster}
-            className="w-full bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
-          >
-            🚀 Share Your Score
-          </button>
-
-          {/* Submit to Leaderboard */}
-          {currentUser && score && (
-            <button
-              onClick={submitToLeaderboard}
-              disabled={!isConnected || isPending || isConfirming || isConfirmed}
-              className={`w-full px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg ${
-                (!isConnected || isPending || isConfirming || isConfirmed)
-                  ? 'bg-gray-600 cursor-not-allowed opacity-60' 
-                  : 'bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white'
-              }`}
-            >
-              {isPending ? "📝 Preparing..." : 
-               isConfirming ? "⏳ Confirming..." : 
-               isConfirmed ? "✅ Submitted!" : 
-               "🏆 Submit to Leaderboard"}
-            </button>
-          )}
-
-          {/* Home Button */}
+          
           <button
             onClick={() => router.push("/")}
-            className="w-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 border border-white/30"
+            className="group bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 border border-white/30 hover:border-white/50 w-full touch-manipulation"
           >
-            🏠 Home
+            <span className="mr-2">🏠</span>
+            Home
+            <span className="ml-2">→</span>
           </button>
         </div>
 
-        {/* Status Message */}
-        {submissionStatus && (
-          <div className={`mt-3 text-sm font-medium rounded-lg p-2 ${
-            submissionStatus.includes('🎉') ? 'text-green-400 bg-green-400/10 border border-green-400/20' :
-            submissionStatus.includes('❌') ? 'text-red-400 bg-red-400/10 border border-red-400/20' :
-            'text-blue-400 bg-blue-400/10 border border-blue-400/20'
-          }`}>
-            {submissionStatus}
-          </div>
-        )}
-
-        {/* Transaction Hash */}
-        {hash && (
-          <div className="mt-2 text-xs text-gray-400">
-            TX: {hash.slice(0, 8)}...{hash.slice(-6)}
-          </div>
-        )}
+        {/* Share Score */}
+        <div className={`mt-2 opacity-60 transform transition-all duration-1000 delay-1200 ${
+          animateScore ? 'translate-y-0 opacity-60' : 'translate-y-10 opacity-0'
+        }`}>
+          <p className="text-xs">Challenge yourself again!</p>
+        </div>
       </div>
-    </main>
- );
-}
 
-// Loading Component
-function ResultPageLoading() {
-  return (
-    <main className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center">
-      <div className="text-center">
-        <div className="text-6xl mb-6 animate-bounce">🎮</div>
-        <div className="text-xl font-semibold">Loading your results...</div>
-        <div className="text-sm opacity-60 mt-2">Preparing your score</div>
-      </div>
+      {/* Custom Animations */}
+      <style jsx>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          50% { transform: translateY(-15px) rotate(180deg); }
+        }
+        .animate-float {
+          animation: float 6s ease-in-out infinite;
+        }
+      `}</style>
     </main>
   );
 }
 
-// Main Export
+// Main component with Suspense wrapper
 export default function ResultPage() {
   return (
-    <Suspense fallback={<ResultPageLoading />}>
+    <Suspense fallback={<LoadingSpinner />}>
       <ResultContent />
     </Suspense>
   );
