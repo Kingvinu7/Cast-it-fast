@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
-import { getContract } from "@/lib/leaderboardContract";
+import leaderboardContract, { getContract } from "@/lib/leaderboardContract"; // Import both
 import { useRouter } from "next/navigation";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { sdk } from "@farcaster/miniapp-sdk";
@@ -13,6 +13,7 @@ export default function LeaderboardPage() {
   const [error, setError] = useState(null);
   const [selectedEntries, setSelectedEntries] = useState(new Set());
   const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(Date.now()); // Add refresh tracking
   const [safeAreaInsets, setSafeAreaInsets] = useState({
     top: 0,
     bottom: 0,
@@ -37,7 +38,7 @@ export default function LeaderboardPage() {
   });
 
   // Your wallet address (replace with your actual address)
-  const OWNER_ADDRESS = "0xE595a019B48378FEE0971ee1703537964E2A3B05"; // Replace this!
+  const OWNER_ADDRESS = "0xE595a019B48378FEE0971ee1703537964E2A3B05";
 
   const isOwner = isConnected && address?.toLowerCase() === OWNER_ADDRESS.toLowerCase();
 
@@ -68,20 +69,27 @@ export default function LeaderboardPage() {
       console.log("Delete confirmed, refreshing leaderboard...");
       setSelectedEntries(new Set());
       setIsDeleteMode(false);
-      fetchLeaderboard();
+      // Add delay to ensure blockchain state is updated
+      setTimeout(() => {
+        fetchLeaderboard(true); // Force refresh
+      }, 2000);
     }
   }, [isDeleteConfirmed]);
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError(null);
 
-      // Try multiple RPC providers as fallback
+      console.log(`🔄 Fetching leaderboard... ${forceRefresh ? '(Force refresh)' : ''}`);
+
+      // Base network RPC providers with cache busting
+      const timestamp = Date.now();
       const rpcProviders = [
-        "https://mainnet.base.org",
-        "https://base-mainnet.g.alchemy.com/v2/demo",
-        "https://base.gateway.tenderly.co",
+        `https://mainnet.base.org?t=${timestamp}`,
+        `https://base-mainnet.g.alchemy.com/v2/demo?t=${timestamp}`,
+        `https://base.gateway.tenderly.co?t=${timestamp}`,
+        "https://base.llamarpc.com",
       ];
 
       let provider;
@@ -90,39 +98,52 @@ export default function LeaderboardPage() {
       // Try each provider until one works
       for (const rpcUrl of rpcProviders) {
         try {
+          console.log(`🔗 Trying RPC: ${rpcUrl.split('?')[0]}`);
           provider = new ethers.JsonRpcProvider(rpcUrl);
+          
+          // Verify we're on Base network (chainId: 8453)
+          const network = await provider.getNetwork();
+          if (network.chainId !== 8453n) {
+            console.log(`❌ Wrong network: ${network.chainId}, expected Base (8453)`);
+            continue;
+          }
+          
           contract = getContract(provider);
           
-          // Test the connection with a simple call
-          await provider.getBlockNumber();
-          console.log(`Connected successfully to: ${rpcUrl}`);
+          // Test the connection with latest block
+          const blockNumber = await provider.getBlockNumber();
+          console.log(`✅ Connected to Base network, block: ${blockNumber}`);
           break;
         } catch (providerError) {
-          console.warn(`Failed to connect to ${rpcUrl}:`, providerError);
+          console.warn(`❌ Failed RPC ${rpcUrl.split('?')[0]}:`, providerError.message);
           continue;
         }
       }
 
-      if (!contract) {
-        throw new Error("Unable to connect to any RPC provider");
+      if (!contract || !provider) {
+        throw new Error("Unable to connect to Base network");
       }
 
-      // Get total entries
+      // Get total entries with retry logic
       let total;
-      try {
-        total = await contract.getTotalEntries();
-        console.log("Total entries:", total.toString());
-      } catch (contractError) {
-        console.error("Error calling getTotalEntries:", contractError);
-        
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (retryCount < maxRetries) {
         try {
-          total = await contract.getEntriesCount();
-        } catch (altError) {
-          try {
-            total = await contract.totalEntries();
-          } catch (altError2) {
-            throw new Error("Contract method not found. Check contract ABI.");
+          total = await contract.getTotalEntries();
+          console.log(`📊 Total entries: ${total.toString()}`);
+          break;
+        } catch (contractError) {
+          retryCount++;
+          console.warn(`⚠️ Contract call failed (attempt ${retryCount}):`, contractError.message);
+          
+          if (retryCount === maxRetries) {
+            throw new Error(`Contract method failed after ${maxRetries} attempts`);
           }
+          
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
         }
       }
 
@@ -130,53 +151,44 @@ export default function LeaderboardPage() {
       const results = [];
 
       if (totalNum > 0) {
-        // Fetch entries with batch processing
-        const batchSize = 5;
-        for (let i = 0; i < totalNum; i += batchSize) {
-          const batch = [];
-          const endIndex = Math.min(i + batchSize, totalNum);
-          
-          for (let j = i; j < endIndex; j++) {
-            batch.push(
-              contract.getEntry(j).catch(err => {
-                console.error(`Error fetching entry ${j}:`, err);
-                return null;
-              })
-            );
-          }
-
-          const batchResults = await Promise.all(batch);
-          
-          for (let k = 0; k < batchResults.length; k++) {
-            const result = batchResults[k];
+        console.log(`📥 Fetching ${totalNum} entries...`);
+        
+        // Fetch entries with error handling
+        for (let i = 0; i < totalNum; i++) {
+          try {
+            const result = await contract.getEntry(i);
             if (result) {
               const [name, user, score] = result;
               results.push({
-                index: i + k, // Store the contract index
-                displayName: name || `Player ${i + k + 1}`,
+                index: i,
+                displayName: name || `Player ${i + 1}`,
                 address: user || "0x0000000000000000000000000000000000000000",
                 score: parseInt(score.toString()) || 0,
               });
             }
+          } catch (entryError) {
+            console.warn(`⚠️ Failed to fetch entry ${i}:`, entryError.message);
+            // Continue with other entries
           }
-
-          // Add small delay between batches
-          if (endIndex < totalNum) {
+          
+          // Add small delay every 10 entries to avoid rate limits
+          if (i > 0 && i % 10 === 0) {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
       }
 
-      // Sort by score (highest first) - NO FILTERING!
+      // Sort by score (highest first)
       const sorted = results
-        .filter(entry => entry.score >= 0) // Only filter out truly invalid entries
+        .filter(entry => entry.score >= 0)
         .sort((a, b) => b.score - a.score);
 
+      console.log(`✅ Leaderboard loaded: ${sorted.length} valid entries`);
       setEntries(sorted);
-      console.log("Leaderboard loaded:", sorted);
+      setLastRefresh(Date.now());
 
     } catch (err) {
-      console.error("Error fetching leaderboard:", err);
+      console.error("❌ Error fetching leaderboard:", err);
       setError(err.message || "Failed to load leaderboard");
     } finally {
       setLoading(false);
@@ -188,12 +200,13 @@ export default function LeaderboardPage() {
   }, []);
 
   const handleRefresh = () => {
+    console.log("🔄 Manual refresh triggered");
     setEntries([]);
     setError(null);
     setLoading(true);
     setSelectedEntries(new Set());
     setIsDeleteMode(false);
-    fetchLeaderboard();
+    fetchLeaderboard(true); // Force refresh
   };
 
   const toggleEntrySelection = (index) => {
@@ -211,7 +224,7 @@ export default function LeaderboardPage() {
 
     try {
       const indicesToDelete = Array.from(selectedEntries);
-      console.log("Deleting entries at indices:", indicesToDelete);
+      console.log("🗑️ Deleting entries at indices:", indicesToDelete);
 
       if (indicesToDelete.length === 1) {
         // Single delete
@@ -232,9 +245,15 @@ export default function LeaderboardPage() {
       }
 
     } catch (err) {
-      console.error("Delete error:", err);
+      console.error("❌ Delete error:", err);
       alert("Failed to delete entries: " + (err.message || "Unknown error"));
     }
+  };
+
+  // Format last refresh time
+  const formatRefreshTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString();
   };
 
   return (
@@ -309,12 +328,18 @@ export default function LeaderboardPage() {
           </div>
         )}
 
-        <h1 className="text-2xl font-bold mb-6 text-center">🏆 Leaderboard</h1>
+        <h1 className="text-2xl font-bold mb-2 text-center">🏆 Leaderboard</h1>
+        
+        {/* Last refresh indicator */}
+        <div className="text-center text-xs text-gray-400 mb-4">
+          {lastRefresh && `Last updated: ${formatRefreshTime(lastRefresh)}`}
+          {entries.length > 0 && ` • ${entries.length} players`}
+        </div>
 
         {loading ? (
           <div className="text-center">
             <div className="text-4xl mb-4 animate-spin">🎮</div>
-            <div className="text-gray-300">Loading leaderboard...</div>
+            <div className="text-gray-300">Loading from Base blockchain...</div>
             <div className="text-xs text-gray-500 mt-2">This may take a moment</div>
           </div>
         ) : error ? (
@@ -338,7 +363,7 @@ export default function LeaderboardPage() {
           <div className="space-y-2">
             {entries.slice(0, 100).map((entry, i) => (
               <div
-                key={`${entry.address}-${entry.index}`}
+                key={`${entry.address}-${entry.index}-${lastRefresh}`} // Add refresh timestamp to key
                 className={`flex justify-between items-center backdrop-blur-sm border px-4 py-2 rounded-lg transition-all hover:scale-[1.01] ${
                   isDeleteMode && selectedEntries.has(entry.index)
                     ? 'bg-red-500/20 border-red-500/40'
@@ -404,10 +429,7 @@ export default function LeaderboardPage() {
 
         {/* Footer info */}
         <div className="mt-6 text-center text-xs text-gray-500">
-          <p>Leaderboard updates in real-time</p>
-          {entries.length > 0 && (
-            <p className="mt-1">Total players: {entries.length}</p>
-          )}
+          <p>📡 Live from Base blockchain</p>
           {isOwner && (
             <p className="mt-1 text-yellow-400">👑 Owner privileges active</p>
           )}
