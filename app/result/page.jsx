@@ -68,7 +68,7 @@ function ResultContent() {
     }
   }, [isConfirmed, isWriteError, receiptError, writeError]);
 
-  // Initialize Farcaster SDK - optimized for mobile app
+  // Initialize Farcaster SDK - with better displayName handling
   useEffect(() => {
     const initializeFarcaster = async () => {
       try {
@@ -79,25 +79,27 @@ function ResultContent() {
         console.log("🧠 Farcaster Context:", context);
 
         if (context?.user) {
-          // Safely extract user info - handle potential non-string values
+          // Fix the displayName issue - avoid any function calls or symbol access
           let displayName;
           
-          // Try to get displayName safely
           try {
+            // Direct property access only - no function calls
             if (context.user.displayName && typeof context.user.displayName === 'string') {
               displayName = context.user.displayName;
-            } else if (context.user.displayName && context.user.displayName.toString) {
-              displayName = context.user.displayName.toString();
             } else if (context.user.username && typeof context.user.username === 'string') {
               displayName = context.user.username;
-            } else if (context.user.username && context.user.username.toString) {
-              displayName = context.user.username.toString();
             } else {
-              displayName = `Player${context.user.fid || 'Unknown'}`;
+              displayName = `Player${context.user.fid}`;
             }
-          } catch (err) {
-            console.warn("Error extracting displayName:", err);
-            displayName = context.user.username || `Player${context.user.fid || 'Unknown'}`;
+          } catch (nameError) {
+            console.warn("Error getting display name:", nameError);
+            displayName = `Player${context.user.fid}`;
+          }
+
+          // Ensure displayName is a clean string
+          displayName = String(displayName).replace(/[^\w\s-_.]/g, '').trim();
+          if (!displayName) {
+            displayName = `Player${context.user.fid}`;
           }
 
           setCurrentUser({
@@ -125,7 +127,7 @@ function ResultContent() {
     initializeFarcaster();
   }, []);
 
-  // Submit to leaderboard with better error handling
+  // Submit to leaderboard with fixed type conversion
   const submitToLeaderboard = async () => {
     if (!isConnected) {
       setSubmissionStatus("❌ Wallet not connected");
@@ -140,48 +142,52 @@ function ResultContent() {
     try {
       setSubmissionStatus("📝 Submitting to leaderboard...");
 
-      const scoreValue = parseInt(score);
-      
-      // Safely convert displayName to string
-      let displayName;
-      try {
-        if (typeof currentUser.displayName === 'string') {
-          displayName = currentUser.displayName.trim();
-        } else if (currentUser.displayName && currentUser.displayName.toString) {
-          displayName = currentUser.displayName.toString().trim();
-        } else {
-          displayName = (currentUser.username || `Player${currentUser.fid || 'Unknown'}`).toString().trim();
-        }
-      } catch (err) {
-        console.error("Error converting displayName to string:", err);
-        displayName = `Player${currentUser.fid || 'Unknown'}`;
-      }
+      // Fix type conversion issues
+      const scoreValue = Number(score);
+      const displayName = String(currentUser.displayName).trim();
 
-      // Validate inputs
-      if (isNaN(scoreValue) || scoreValue < 0) {
+      // Validate inputs more strictly
+      if (!Number.isInteger(scoreValue) || scoreValue < 0 || scoreValue > 10000) {
         setSubmissionStatus("❌ Invalid score value");
+        console.error("Invalid score:", scoreValue);
         return;
       }
 
-      if (!displayName || displayName.length === 0) {
+      if (!displayName || displayName.length === 0 || displayName.length > 50) {
         setSubmissionStatus("❌ Invalid player name");
+        console.error("Invalid displayName:", displayName);
+        return;
+      }
+
+      // Clean the display name further - remove any special characters that might cause issues
+      const cleanDisplayName = displayName.replace(/[^\w\s-_.]/g, '').substring(0, 30).trim();
+      if (!cleanDisplayName) {
+        setSubmissionStatus("❌ Invalid player name after cleaning");
         return;
       }
 
       // Ensure contract address and ABI are valid
-      if (!leaderboardContract.address || !leaderboardContract.abi) {
+      if (!leaderboardContract?.address || !leaderboardContract?.abi) {
         setSubmissionStatus("❌ Contract configuration error");
         console.error("Contract config:", leaderboardContract);
         return;
       }
 
-      console.log("Submitting:", { displayName, scoreValue, address: leaderboardContract.address });
+      console.log("Submitting with cleaned data:", { 
+        displayName: cleanDisplayName, 
+        scoreValue, 
+        address: leaderboardContract.address,
+        originalDisplayName: currentUser.displayName
+      });
+
+      // Convert to BigInt if needed for the contract
+      const scoreAsBigInt = BigInt(scoreValue);
 
       const result = await writeContract({
         address: leaderboardContract.address,
         abi: leaderboardContract.abi,
         functionName: "submitScore",
-        args: [displayName, scoreValue],
+        args: [cleanDisplayName, scoreAsBigInt], // Use BigInt for score
       });
 
       console.log("Write contract result:", result);
@@ -199,6 +205,13 @@ function ResultContent() {
         setSubmissionStatus("❌ Contract execution failed");
       } else if (err.message?.includes("network")) {
         setSubmissionStatus("❌ Network connection error");
+      } else if (err.message?.includes("Cannot convert object to primitive")) {
+        setSubmissionStatus("❌ Data conversion error - trying again...");
+        // Retry with just regular number
+        setTimeout(() => {
+          retrySubmissionWithNumber(cleanDisplayName, scoreValue);
+        }, 1000);
+        return;
       } else if (err.code === 4001) {
         setSubmissionStatus("❌ Transaction rejected");
       } else {
@@ -209,6 +222,26 @@ function ResultContent() {
           data: err.data,
         });
       }
+    }
+  };
+
+  // Retry function with regular number instead of BigInt
+  const retrySubmissionWithNumber = async (cleanDisplayName, scoreValue) => {
+    try {
+      setSubmissionStatus("🔄 Retrying submission...");
+      
+      const result = await writeContract({
+        address: leaderboardContract.address,
+        abi: leaderboardContract.abi,
+        functionName: "submitScore",
+        args: [cleanDisplayName, scoreValue], // Use regular number
+      });
+
+      console.log("Retry successful:", result);
+      setSubmissionStatus("⏳ Confirming transaction...");
+    } catch (retryErr) {
+      console.error("Retry also failed:", retryErr);
+      setSubmissionStatus("❌ Submission failed after retry");
     }
   };
 
@@ -478,7 +511,7 @@ function ResultContent() {
         )}
       </div>
     </main>
-  );
+ );
 }
 
 // Loading Component
