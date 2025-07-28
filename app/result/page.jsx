@@ -52,7 +52,6 @@ function ResultContent() {
 
   try {
     setSubmissionStatus("📝 Submitting to leaderboard...");
-
 const displayName = currentUser.displayName;
     
     const txHash = await writeContractAsync({
