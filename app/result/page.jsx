@@ -16,13 +16,13 @@ function ResultContent() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [submissionStatus, setSubmissionStatus] = useState("");
   const [safeAreaInsets, setSafeAreaInsets] = useState({
     top: 0,
     bottom: 0,
     left: 0,
     right: 0
   });
-  const [isSDKReady, setIsSDKReady] = useState(false);
 
   // Wagmi hooks
   const { address, isConnected } = useAccount();
@@ -52,7 +52,6 @@ function ResultContent() {
         }
       } catch (error) {
         console.error("Failed to connect wallet:", error);
-        setSubmissionStatus("❌ Failed to connect wallet");
       }
     };
 
@@ -69,107 +68,64 @@ function ResultContent() {
     }
   }, [isConfirmed, isWriteError, receiptError, writeError]);
 
-  // Initialize Farcaster SDK with proper implementation based on official docs
+  // Initialize Farcaster SDK - optimized for mobile app
   useEffect(() => {
-    const initializeUser = async () => {
+    const initializeFarcaster = async () => {
       try {
-        // Check if we're in a browser environment
-        if (typeof window === 'undefined') return;
+        // Initialize SDK - this should work in Farcaster mobile app
+        await sdk.actions.ready();
         
-        // Initialize SDK with timeout
-        const initPromise = sdk.actions.ready();
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('SDK initialization timeout')), 5000)
-        );
-
-        await Promise.race([initPromise, timeoutPromise]);
-        setIsSDKReady(true);
-
         const context = sdk.context;
-        if (context?.user) {
-          console.log("🧠 Farcaster User Context:", context.user);
+        console.log("🧠 Farcaster Context:", context);
 
-          // Based on official docs, these are all optional string properties
+        if (context?.user) {
+          // Get user info - displayName is optional string property
           const displayName = context.user.displayName || 
                              context.user.username || 
-                             `User${context.user.fid}`;
+                             `Player${context.user.fid}`;
 
-          const userInfo = {
+          setCurrentUser({
             fid: context.user.fid,
             username: context.user.username,
             displayName: displayName,
             pfpUrl: context.user.pfpUrl,
-            // Additional context info if available
-            location: context.location?.type || 'unknown'
-          };
-
-          setCurrentUser(userInfo);
-          
-          // Set safe area insets if available
-          if (context.client?.safeAreaInsets) {
-            setSafeAreaInsets(context.client.safeAreaInsets);
-            console.log("📱 Safe area insets:", context.client.safeAreaInsets);
-          }
-          
-          console.log("✅ User initialized successfully:", userInfo);
-        } else {
-          console.warn("No user context available");
-          // In development/testing, create a fallback user
-          if (process.env.NODE_ENV === 'development') {
-            setCurrentUser({
-              fid: 12345,
-              username: 'testuser',
-              displayName: 'Test Player',
-              pfpUrl: null,
-              location: 'development'
-            });
-            console.log("🔄 Using development fallback user");
-          }
-        }
-      } catch (error) {
-        console.error("Farcaster SDK initialization failed:", error);
-        setIsSDKReady(false);
-        
-        // Only create fallback in development
-        if (process.env.NODE_ENV === 'development') {
-          setCurrentUser({
-            fid: Date.now(),
-            username: 'fallback_user',
-            displayName: 'Fallback Player',
-            pfpUrl: null,
-            location: 'fallback'
           });
-          console.log("🔄 Using fallback user for development");
+
+          console.log("✅ User loaded:", { displayName, fid: context.user.fid });
         }
+
+        // Set safe area insets for mobile
+        if (context?.client?.safeAreaInsets) {
+          setSafeAreaInsets(context.client.safeAreaInsets);
+          console.log("📱 Safe area insets:", context.client.safeAreaInsets);
+        }
+
+      } catch (error) {
+        console.error("Farcaster SDK error:", error);
+        // Don't set fallback user - this should only run in Farcaster
       }
     };
 
-    initializeUser();
+    initializeFarcaster();
   }, []);
 
-  // Submit to leaderboard with better error handling
+  // Submit to leaderboard
   const submitToLeaderboard = async () => {
     if (!isConnected || !score || !currentUser?.displayName) {
-      setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
+      setSubmissionStatus("❌ Please ensure wallet is connected and try again");
       return;
     }
 
     try {
       setSubmissionStatus("📝 Submitting to leaderboard...");
 
-      // Validate inputs
       const scoreValue = parseInt(score);
-      const displayName = currentUser.displayName.toString();
+      const displayName = String(currentUser.displayName);
 
       if (isNaN(scoreValue) || scoreValue < 0) {
-        throw new Error("Invalid score value");
+        throw new Error("Invalid score");
       }
 
-      if (!displayName || displayName.length === 0) {
-        throw new Error("Invalid display name");
-      }
-
-      // Call writeContract with proper error handling
       await writeContract({
         address: leaderboardContract.address,
         abi: leaderboardContract.abi,
@@ -177,31 +133,29 @@ function ResultContent() {
         args: [displayName, scoreValue],
       });
 
-      setSubmissionStatus("⏳ Waiting for confirmation...");
+      setSubmissionStatus("⏳ Confirming transaction...");
     } catch (err) {
       console.error("Submission failed:", err);
-      let errorMessage = "❌ Failed to submit score.";
       
       if (err.message?.includes("User rejected")) {
-        errorMessage = "❌ Transaction was rejected by user.";
+        setSubmissionStatus("❌ Transaction cancelled");
       } else if (err.message?.includes("insufficient funds")) {
-        errorMessage = "❌ Insufficient funds for transaction.";
+        setSubmissionStatus("❌ Insufficient funds for transaction");
+      } else {
+        setSubmissionStatus("❌ Failed to submit score");
       }
-      
-      setSubmissionStatus(errorMessage);
     }
   };
 
-  // Save game history with better localStorage handling
+  // Save game history
   useEffect(() => {
     const saveGameHistory = () => {
-      try {
-        if (!score || !correct) return;
+      if (!score || !correct) return;
 
+      try {
         const numScore = parseInt(score) || 0;
         const numCorrect = parseInt(correct) || 0;
-        const totalQuestions = 15;
-        const accuracy = Math.round((numCorrect / totalQuestions) * 100);
+        const accuracy = Math.round((numCorrect / 15) * 100);
 
         if (numScore === 0 && numCorrect === 0) return;
 
@@ -212,42 +166,30 @@ function ResultContent() {
           date: new Date().toISOString()
         };
 
-        // Check if localStorage is available
-        if (typeof Storage === "undefined") {
-          console.warn("localStorage not available");
-          return;
-        }
-
         const existingHistory = JSON.parse(localStorage.getItem("playHistory") || "[]");
-
-        const now = new Date(gameResult.date).getTime();
+        
+        // Check for duplicates
         const isDuplicate = existingHistory.some(entry =>
           entry.score === gameResult.score &&
           entry.correct === gameResult.correct &&
-          entry.accuracy === gameResult.accuracy &&
-          Math.abs(new Date(entry.date).getTime() - now) < 5000
+          Math.abs(new Date(entry.date).getTime() - new Date(gameResult.date).getTime()) < 5000
         );
 
-        if (isDuplicate) {
-          console.log("Duplicate game entry detected, skipping save");
-          return;
+        if (!isDuplicate) {
+          const updatedHistory = [gameResult, ...existingHistory].slice(0, 10);
+          localStorage.setItem("playHistory", JSON.stringify(updatedHistory));
+          console.log("Game saved:", gameResult);
         }
-
-        const updatedHistory = [gameResult, ...existingHistory];
-        const limitedHistory = updatedHistory.slice(0, 10);
-
-        localStorage.setItem("playHistory", JSON.stringify(limitedHistory));
-        console.log("Game result saved to history:", gameResult);
       } catch (error) {
-        console.error("Failed to save game history:", error);
+        console.error("Failed to save game:", error);
       }
     };
 
-    // Trigger animations on mount
+    // Trigger animations
     setShowConfetti(true);
     setTimeout(() => setAnimateScore(true), 500);
     
-    // Save game history
+    // Save game
     saveGameHistory();
   }, [score, correct]);
 
@@ -265,8 +207,6 @@ function ResultContent() {
     return { message: "Keep Practicing! 💪", emoji: "🎯", color: "text-red-400" };
   };
 
-  const performance = getPerformanceMessage(score, correct);
-
   const getRank = (score, correct) => {
     const numScore = parseInt(score) || 0;
     const numCorrect = parseInt(correct) || 0;
@@ -282,184 +222,181 @@ function ResultContent() {
   };
 
   const shareToFarcaster = () => {
+    const numScore = parseInt(score) || 0;
+    const numCorrect = parseInt(correct) || 0;
+
+    const shareText = `I scored ${numScore} points and got ${numCorrect}/15 questions right on Cast It Fast! Can you beat my score? 🎮`;
+    const encodedText = encodeURIComponent(shareText);
+    const miniappUrl = encodeURIComponent("https://cast-it-fast.vercel.app");
+    const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`;
+
+    // Try to use Farcaster SDK share if available, otherwise fallback to URL
     try {
-      const numScore = parseInt(score) || 0;
-      const numCorrect = parseInt(correct) || 0;
-
-      const shareText = `I scored ${numScore} and answered ${numCorrect} questions on Cast It Fast trivia game on Farcaster, can you beat me?`;
-      const encodedText = encodeURIComponent(shareText);
-      const miniappUrl = encodeURIComponent("https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast");
-      const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`;
-
-      window.open(farcasterUrl, '_blank', 'noopener,noreferrer');
+      if (sdk.actions.openUrl) {
+        sdk.actions.openUrl(farcasterUrl);
+      } else {
+        window.open(farcasterUrl, '_blank');
+      }
     } catch (error) {
-      console.error("Failed to share to Farcaster:", error);
+      window.open(farcasterUrl, '_blank');
     }
   };
 
-  // Get button text and status for leaderboard submission
-  const getLeaderboardButtonText = () => {
-    if (!isConnected) return "🔌 Connect Wallet First";
-    if (isPending) return "📝 Preparing Transaction...";
-    if (isConfirming) return "⏳ Confirming Transaction...";
-    if (isConfirmed) return "✅ Score Submitted!";
-    return "📝 Submit Score to Leaderboard";
-  };
-
-  const isLeaderboardButtonDisabled = () => {
-    return !isConnected || !currentUser || !score || isPending || isConfirming || isConfirmed;
-  };
+  const performance = getPerformanceMessage(score, correct);
 
   return (
     <main 
-      className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center p-3 relative overflow-hidden"
+      className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center relative overflow-hidden"
       style={{
-        paddingTop: Math.max(12, safeAreaInsets.top),
-        paddingBottom: Math.max(12, safeAreaInsets.bottom),
-        paddingLeft: Math.max(12, safeAreaInsets.left),
-        paddingRight: Math.max(12, safeAreaInsets.right),
+        paddingTop: Math.max(16, safeAreaInsets.top + 8),
+        paddingBottom: Math.max(16, safeAreaInsets.bottom + 8),
+        paddingLeft: Math.max(16, safeAreaInsets.left + 8),
+        paddingRight: Math.max(16, safeAreaInsets.right + 8),
       }}
     >
-      {/* Animated Background Elements */}
+      {/* Animated Background */}
       <div className="absolute inset-0 overflow-hidden">
-        {[...Array(12)].map((_, i) => (
+        {[...Array(15)].map((_, i) => (
           <div
             key={i}
-            className={`absolute animate-float opacity-20 text-lg ${showConfetti ? 'animate-bounce' : ''}`}
+            className="absolute animate-pulse opacity-10 text-2xl"
             style={{
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 2}s`,
-              animationDuration: `${3 + Math.random() * 2}s`
+              animationDelay: `${Math.random() * 3}s`,
+              animationDuration: `${2 + Math.random() * 2}s`
             }}
           >
-            {['🌟', '✨', '🎉', '🎊', '💫'][Math.floor(Math.random() * 5)]}
+            {['🌟', '✨', '🎉', '🎊', '💫', '🎯', '🏆'][Math.floor(Math.random() * 7)]}
           </div>
         ))}
       </div>
 
-      <div className="relative z-10 text-center max-w-sm mx-auto w-full flex flex-col justify-center min-h-screen py-2">
-        {/* Main Trophy Animation */}
-        <div className={`text-3xl sm:text-4xl mb-2 transform transition-all duration-1000 ${
+      <div className="relative z-10 text-center max-w-sm mx-auto w-full px-4">
+        {/* Trophy Animation */}
+        <div className={`text-6xl mb-4 transform transition-all duration-1000 ${
           showConfetti ? 'animate-bounce scale-100' : 'scale-0'
         }`}>
           {performance.emoji}
         </div>
 
-        {/* Game Over Title */}
-        <h1 className={`text-xl sm:text-2xl font-bold mb-2 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-transparent transform transition-all duration-1000 ${
+        {/* Title */}
+        <h1 className={`text-3xl font-bold mb-3 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-transparent transform transition-all duration-1000 ${
           showConfetti ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
           Game Complete!
         </h1>
 
         {/* Performance Message */}
-        <div className={`text-base sm:text-lg font-semibold mb-3 ${performance.color} transform transition-all duration-1000 delay-300 ${
+        <div className={`text-xl font-semibold mb-6 ${performance.color} transform transition-all duration-1000 delay-300 ${
           showConfetti ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
           {performance.message}
         </div>
 
         {/* Score Display */}
-        <div className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 mb-3 border border-white/20 shadow-2xl transform transition-all duration-1000 delay-500 ${
+        <div className={`bg-white/10 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-white/20 shadow-2xl transform transition-all duration-1000 delay-500 ${
           animateScore ? 'scale-100 opacity-100' : 'scale-90 opacity-0'
         }`}>
-          <div className="text-xs mb-1 opacity-80">Your Final Score</div>
-          <div className={`text-3xl sm:text-4xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent transform transition-all duration-500 ${
+          <div className="text-sm mb-2 opacity-80">Final Score</div>
+          <div className={`text-5xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent transform transition-all duration-500 ${
             animateScore ? 'scale-100' : 'scale-0'
           }`}>
             {score || 0}
           </div>
-          <div className="text-xs opacity-60">points</div>
+          <div className="text-sm opacity-60 mt-1">points</div>
         </div>
 
-        {/* Stats Cards - Ultra Compact */}
-        <div className={`grid grid-cols-3 gap-1.5 mb-3 transform transition-all duration-1000 delay-700 ${
+        {/* Stats Grid */}
+        <div className={`grid grid-cols-3 gap-3 mb-6 transform transition-all duration-1000 delay-700 ${
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">
-            <div className="text-sm mb-0.5">🎯</div>
-            <div className="text-xs opacity-80">Questions</div>
-            <div className="text-xs font-bold">15</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
+            <div className="text-2xl mb-1">🎯</div>
+            <div className="text-xs opacity-80 mb-1">Questions</div>
+            <div className="text-lg font-bold">15</div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">
-            <div className="text-sm mb-0.5">⭐</div>
-            <div className="text-xs opacity-80">Accuracy</div>
-            <div className="text-xs font-bold">{Math.round(((parseInt(correct) || 0) / 15) * 100)}%</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
+            <div className="text-2xl mb-1">✅</div>
+            <div className="text-xs opacity-80 mb-1">Correct</div>
+            <div className="text-lg font-bold">{correct || 0}</div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-white/20">
-            <div className="text-sm mb-0.5">🏆</div>
-            <div className="text-xs opacity-80">Rank</div>
-            <div className="text-xs font-bold">
-              {getRank(score, correct)}
-            </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
+            <div className="text-2xl mb-1">🏆</div>
+            <div className="text-xs opacity-80 mb-1">Rank</div>
+            <div className="text-sm font-bold">{getRank(score, correct)}</div>
           </div>
         </div>
 
-        {/* Wallet Connection Status */}
-        {!isConnected && (
-          <div className="mb-3 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">
-            🔌 Wallet connecting... Please wait
+        {/* User Info */}
+        {currentUser && (
+          <div className="mb-4 text-sm text-green-400 bg-green-400/10 rounded-lg p-3 border border-green-400/20">
+            👋 Hey {currentUser.displayName}!
           </div>
         )}
 
-        {isConnected && address && (
-          <div className="mb-3 text-xs text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
-            ✅ Wallet Connected: {address.slice(0, 6)}...{address.slice(-4)}
+        {/* Wallet Status */}
+        {isConnected && address ? (
+          <div className="mb-4 text-xs text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
+            ✅ Wallet: {address.slice(0, 6)}...{address.slice(-4)}
+          </div>
+        ) : (
+          <div className="mb-4 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">
+            🔌 Connecting wallet...
           </div>
         )}
 
-        {/* Action Buttons - Ultra Compact */}
-        <div className={`space-y-1.5 transform transition-all duration-1000 delay-1000 ${
+        {/* Action Buttons */}
+        <div className={`space-y-3 transform transition-all duration-1000 delay-1000 ${
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
+          
+          {/* Play Again */}
           <button
             onClick={() => router.push("/game")}
-            className="group bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
+            className="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
           >
-            <span className="mr-2">🎮</span>
-            Play Again
-            <span className="ml-2">↻</span>
+            🎮 Play Again
           </button>
 
-          {/* Farcaster Share Button */}
+          {/* Share Button */}
           <button
             onClick={shareToFarcaster}
-            className="group bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
           >
-            <span className="mr-2">🚀</span>
-            Share Your Score
-            <span className="ml-2">📢</span>
+            🚀 Share Your Score
           </button>
 
+          {/* Submit to Leaderboard */}
+          {currentUser && score && (
+            <button
+              onClick={submitToLeaderboard}
+              disabled={!isConnected || isPending || isConfirming || isConfirmed}
+              className={`w-full px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg ${
+                (!isConnected || isPending || isConfirming || isConfirmed)
+                  ? 'bg-gray-600 cursor-not-allowed opacity-60' 
+                  : 'bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white'
+              }`}
+            >
+              {isPending ? "📝 Preparing..." : 
+               isConfirming ? "⏳ Confirming..." : 
+               isConfirmed ? "✅ Submitted!" : 
+               "🏆 Submit to Leaderboard"}
+            </button>
+          )}
+
+          {/* Home Button */}
           <button
             onClick={() => router.push("/")}
-            className="group bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 border border-white/30 hover:border-white/50 w-full touch-manipulation"
+            className="w-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 border border-white/30"
           >
-            <span className="mr-2">🏠</span>
-            Home
-            <span className="ml-2">→</span>
+            🏠 Home
           </button>
         </div>
 
-        {/* Leaderboard Submit Button with Enhanced Status */}
-        {currentUser && score && (
-          <button
-            onClick={submitToLeaderboard}
-            disabled={isLeaderboardButtonDisabled()}
-            className={`group px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full mt-2 ${
-              isLeaderboardButtonDisabled() 
-                ? 'bg-gray-600 cursor-not-allowed opacity-60' 
-                : 'bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white'
-            }`}
-          >
-            {getLeaderboardButtonText()}
-          </button>
-        )}
-
-        {/* Enhanced Submission Status Message */}
+        {/* Status Message */}
         {submissionStatus && (
-          <div className={`mt-3 text-sm font-medium rounded-lg p-2 ${
+          <div className={`mt-4 text-sm font-medium rounded-xl p-3 ${
             submissionStatus.includes('🎉') ? 'text-green-400 bg-green-400/10 border border-green-400/20' :
             submissionStatus.includes('❌') ? 'text-red-400 bg-red-400/10 border border-red-400/20' :
             'text-blue-400 bg-blue-400/10 border border-blue-400/20'
@@ -468,48 +405,31 @@ function ResultContent() {
           </div>
         )}
 
-        {/* Transaction Hash Display */}
+        {/* Transaction Hash */}
         {hash && (
-          <div className="mt-2 text-xs text-gray-400 break-all">
-            Transaction: {hash.slice(0, 10)}...{hash.slice(-8)}
+          <div className="mt-3 text-xs text-gray-400">
+            TX: {hash.slice(0, 8)}...{hash.slice(-6)}
           </div>
         )}
-
-        {/* Share Score - Ultra Compact */}
-        <div className={`mt-2 opacity-60 transform transition-all duration-1000 delay-1200 ${
-          animateScore ? 'translate-y-0 opacity-60' : 'translate-y-10 opacity-0'
-        }`}>
-          <p className="text-xs">Challenge your friends on Farcaster!</p>
-        </div>
       </div>
-
-      {/* Custom Animations */}
-      <style jsx>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-15px) rotate(180deg); }
-        }
-        .animate-float {
-          animation: float 6s ease-in-out infinite;
-        }
-      `}</style>
     </main>
   );
 }
 
-// Loading fallback component
+// Loading Component
 function ResultPageLoading() {
   return (
-    <main className="h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center">
+    <main className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white flex items-center justify-center">
       <div className="text-center">
-        <div className="text-4xl mb-4 animate-spin">🎮</div>
-        <div className="text-lg">Loading your results...</div>
+        <div className="text-6xl mb-6 animate-bounce">🎮</div>
+        <div className="text-xl font-semibold">Loading your results...</div>
+        <div className="text-sm opacity-60 mt-2">Preparing your score</div>
       </div>
     </main>
   );
 }
 
-// Main export component with Suspense wrapper
+// Main Export
 export default function ResultPage() {
   return (
     <Suspense fallback={<ResultPageLoading />}>
