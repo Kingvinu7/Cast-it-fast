@@ -44,7 +44,7 @@ function ResultContent() {
   }, [isConfirmed, error]);
 
   // Submit to leaderboard using Wagmi
-  const submitToLeaderboard = async () => {
+const submitToLeaderboard = async () => {
   if (!isConnected || !score || !currentUser?.displayName) {
     setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
     return;
@@ -52,24 +52,16 @@ function ResultContent() {
 
   try {
     setSubmissionStatus("📝 Submitting to leaderboard...");
-const displayName = currentUser.displayName;
-    
-    const txHash = await writeContractAsync({
+
+    const txHash = await writeContract({
       address: leaderboardContract.address,
       abi: leaderboardContract.abi,
       functionName: "submitScore",
-      args: [displayName, parseInt(score)],
+      args: [currentUser.displayName, parseInt(score)],
     });
 
     setSubmissionStatus("⏳ Waiting for confirmation...");
-
-    const receipt = await waitForTransactionReceipt({ hash: txHash });
-
-    if (receipt.status === "success") {
-      setSubmissionStatus("✅ Score submitted!");
-    } else {
-      setSubmissionStatus("❌ Transaction failed.");
-    }
+    // Confirmation handled by isConfirmed hook
   } catch (err) {
     console.error("Submission failed:", err);
     setSubmissionStatus("❌ Failed to submit score.");
