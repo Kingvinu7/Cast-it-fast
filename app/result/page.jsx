@@ -109,10 +109,15 @@ function ResultContent() {
     initializeFarcaster();
   }, []);
 
-  // Submit to leaderboard
+  // Submit to leaderboard with better error handling
   const submitToLeaderboard = async () => {
-    if (!isConnected || !score || !currentUser?.displayName) {
-      setSubmissionStatus("❌ Please ensure wallet is connected and try again");
+    if (!isConnected) {
+      setSubmissionStatus("❌ Wallet not connected");
+      return;
+    }
+
+    if (!score || !currentUser?.displayName) {
+      setSubmissionStatus("❌ Missing score or user data");
       return;
     }
 
@@ -120,29 +125,59 @@ function ResultContent() {
       setSubmissionStatus("📝 Submitting to leaderboard...");
 
       const scoreValue = parseInt(score);
-      const displayName = String(currentUser.displayName);
+      const displayName = String(currentUser.displayName).trim();
 
+      // Validate inputs
       if (isNaN(scoreValue) || scoreValue < 0) {
-        throw new Error("Invalid score");
+        setSubmissionStatus("❌ Invalid score value");
+        return;
       }
 
-      await writeContract({
+      if (!displayName || displayName.length === 0) {
+        setSubmissionStatus("❌ Invalid player name");
+        return;
+      }
+
+      // Ensure contract address and ABI are valid
+      if (!leaderboardContract.address || !leaderboardContract.abi) {
+        setSubmissionStatus("❌ Contract configuration error");
+        console.error("Contract config:", leaderboardContract);
+        return;
+      }
+
+      console.log("Submitting:", { displayName, scoreValue, address: leaderboardContract.address });
+
+      const result = await writeContract({
         address: leaderboardContract.address,
         abi: leaderboardContract.abi,
         functionName: "submitScore",
         args: [displayName, scoreValue],
       });
 
+      console.log("Write contract result:", result);
       setSubmissionStatus("⏳ Confirming transaction...");
+
     } catch (err) {
-      console.error("Submission failed:", err);
+      console.error("Submission error details:", err);
       
-      if (err.message?.includes("User rejected")) {
-        setSubmissionStatus("❌ Transaction cancelled");
+      // More specific error handling
+      if (err.message?.includes("User rejected") || err.message?.includes("user rejected")) {
+        setSubmissionStatus("❌ Transaction cancelled by user");
       } else if (err.message?.includes("insufficient funds")) {
-        setSubmissionStatus("❌ Insufficient funds for transaction");
+        setSubmissionStatus("❌ Insufficient funds for gas");
+      } else if (err.message?.includes("execution reverted")) {
+        setSubmissionStatus("❌ Contract execution failed");
+      } else if (err.message?.includes("network")) {
+        setSubmissionStatus("❌ Network connection error");
+      } else if (err.code === 4001) {
+        setSubmissionStatus("❌ Transaction rejected");
       } else {
-        setSubmissionStatus("❌ Failed to submit score");
+        setSubmissionStatus("❌ Submission failed - please try again");
+        console.error("Detailed error:", {
+          message: err.message,
+          code: err.code,
+          data: err.data,
+        });
       }
     }
   };
@@ -274,87 +309,87 @@ function ResultContent() {
 
       <div className="relative z-10 text-center max-w-sm mx-auto w-full px-4">
         {/* Trophy Animation */}
-        <div className={`text-6xl mb-4 transform transition-all duration-1000 ${
+        <div className={`text-4xl mb-3 transform transition-all duration-1000 ${
           showConfetti ? 'animate-bounce scale-100' : 'scale-0'
         }`}>
           {performance.emoji}
         </div>
 
         {/* Title */}
-        <h1 className={`text-3xl font-bold mb-3 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-transparent transform transition-all duration-1000 ${
+        <h1 className={`text-2xl font-bold mb-2 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-transparent transform transition-all duration-1000 ${
           showConfetti ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
           Game Complete!
         </h1>
 
         {/* Performance Message */}
-        <div className={`text-xl font-semibold mb-6 ${performance.color} transform transition-all duration-1000 delay-300 ${
+        <div className={`text-lg font-semibold mb-4 ${performance.color} transform transition-all duration-1000 delay-300 ${
           showConfetti ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
           {performance.message}
         </div>
 
         {/* Score Display */}
-        <div className={`bg-white/10 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-white/20 shadow-2xl transform transition-all duration-1000 delay-500 ${
+        <div className={`bg-white/10 backdrop-blur-sm rounded-xl p-4 mb-4 border border-white/20 shadow-2xl transform transition-all duration-1000 delay-500 ${
           animateScore ? 'scale-100 opacity-100' : 'scale-90 opacity-0'
         }`}>
-          <div className="text-sm mb-2 opacity-80">Final Score</div>
-          <div className={`text-5xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent transform transition-all duration-500 ${
+          <div className="text-xs mb-1 opacity-80">Final Score</div>
+          <div className={`text-4xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent transform transition-all duration-500 ${
             animateScore ? 'scale-100' : 'scale-0'
           }`}>
             {score || 0}
           </div>
-          <div className="text-sm opacity-60 mt-1">points</div>
+          <div className="text-xs opacity-60 mt-1">points</div>
         </div>
 
         {/* Stats Grid */}
-        <div className={`grid grid-cols-3 gap-3 mb-6 transform transition-all duration-1000 delay-700 ${
+        <div className={`grid grid-cols-3 gap-2 mb-4 transform transition-all duration-1000 delay-700 ${
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
-            <div className="text-2xl mb-1">🎯</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+            <div className="text-lg mb-1">🎯</div>
             <div className="text-xs opacity-80 mb-1">Questions</div>
-            <div className="text-lg font-bold">15</div>
+            <div className="text-sm font-bold">15</div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
-            <div className="text-2xl mb-1">✅</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+            <div className="text-lg mb-1">✅</div>
             <div className="text-xs opacity-80 mb-1">Correct</div>
-            <div className="text-lg font-bold">{correct || 0}</div>
+            <div className="text-sm font-bold">{correct || 0}</div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
-            <div className="text-2xl mb-1">🏆</div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+            <div className="text-lg mb-1">🏆</div>
             <div className="text-xs opacity-80 mb-1">Rank</div>
-            <div className="text-sm font-bold">{getRank(score, correct)}</div>
+            <div className="text-xs font-bold">{getRank(score, correct)}</div>
           </div>
         </div>
 
         {/* User Info */}
         {currentUser && (
-          <div className="mb-4 text-sm text-green-400 bg-green-400/10 rounded-lg p-3 border border-green-400/20">
+          <div className="mb-3 text-sm text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
             👋 Hey {currentUser.displayName}!
           </div>
         )}
 
         {/* Wallet Status */}
         {isConnected && address ? (
-          <div className="mb-4 text-xs text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
+          <div className="mb-3 text-xs text-green-400 bg-green-400/10 rounded-lg p-2 border border-green-400/20">
             ✅ Wallet: {address.slice(0, 6)}...{address.slice(-4)}
           </div>
         ) : (
-          <div className="mb-4 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">
+          <div className="mb-3 text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-2 border border-yellow-400/20">
             🔌 Connecting wallet...
           </div>
         )}
 
         {/* Action Buttons */}
-        <div className={`space-y-3 transform transition-all duration-1000 delay-1000 ${
+        <div className={`space-y-2 transform transition-all duration-1000 delay-1000 ${
           animateScore ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}>
           
           {/* Play Again */}
           <button
             onClick={() => router.push("/game")}
-            className="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
+            className="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
           >
             🎮 Play Again
           </button>
@@ -362,7 +397,7 @@ function ResultContent() {
           {/* Share Button */}
           <button
             onClick={shareToFarcaster}
-            className="w-full bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg"
           >
             🚀 Share Your Score
           </button>
@@ -372,7 +407,7 @@ function ResultContent() {
             <button
               onClick={submitToLeaderboard}
               disabled={!isConnected || isPending || isConfirming || isConfirmed}
-              className={`w-full px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg ${
+              className={`w-full px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 shadow-lg ${
                 (!isConnected || isPending || isConfirming || isConfirmed)
                   ? 'bg-gray-600 cursor-not-allowed opacity-60' 
                   : 'bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white'
@@ -388,7 +423,7 @@ function ResultContent() {
           {/* Home Button */}
           <button
             onClick={() => router.push("/")}
-            className="w-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-6 py-4 rounded-xl text-lg font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 border border-white/30"
+            className="w-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-4 py-3 rounded-lg text-base font-bold transform hover:scale-105 active:scale-95 transition-all duration-200 border border-white/30"
           >
             🏠 Home
           </button>
@@ -396,7 +431,7 @@ function ResultContent() {
 
         {/* Status Message */}
         {submissionStatus && (
-          <div className={`mt-4 text-sm font-medium rounded-xl p-3 ${
+          <div className={`mt-3 text-sm font-medium rounded-lg p-2 ${
             submissionStatus.includes('🎉') ? 'text-green-400 bg-green-400/10 border border-green-400/20' :
             submissionStatus.includes('❌') ? 'text-red-400 bg-red-400/10 border border-red-400/20' :
             'text-blue-400 bg-blue-400/10 border border-blue-400/20'
@@ -407,7 +442,7 @@ function ResultContent() {
 
         {/* Transaction Hash */}
         {hash && (
-          <div className="mt-3 text-xs text-gray-400">
+          <div className="mt-2 text-xs text-gray-400">
             TX: {hash.slice(0, 8)}...{hash.slice(-6)}
           </div>
         )}
