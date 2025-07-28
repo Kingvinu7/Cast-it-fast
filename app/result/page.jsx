@@ -21,7 +21,7 @@ function ResultContent() {
   // Wagmi hooks
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { writeContractAsync, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   });
@@ -53,7 +53,10 @@ function ResultContent() {
   try {
     setSubmissionStatus("📝 Submitting to leaderboard...");
 
-    const displayName = currentUser.displayName.toString();
+    const displayName =
+  typeof currentUser.displayName === "function"
+    ? await currentUser.displayName()
+    : currentUser.displayName.toString();
 
     const txHash = await writeContractAsync({
       address: leaderboardContract.address,
