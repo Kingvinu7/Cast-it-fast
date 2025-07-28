@@ -6,7 +6,6 @@ import { useEffect, useState, Suspense } from "react";
 import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 
 // Separate component that uses useSearchParams
 function ResultContent() {
