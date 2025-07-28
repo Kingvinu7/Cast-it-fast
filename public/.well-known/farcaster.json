@@ -3,7 +3,7 @@
     "name": "cast it fast",
     "version": "1",
     "iconUrl": "https://cast-it-fast.vercel.app/app-icon.png",
-    "homeUrl": "https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast",
+    "homeUrl": "https://cast-it-fast.vercel.app",
     "imageUrl": "https://cast-it-fast.vercel.app/og.png",
     "buttonTitle": "Start game",
     "splashImageUrl": "https://cast-it-fast.vercel.app/splash-image.png",
@@ -22,7 +22,7 @@
     "tagline": "3 rounds, 10 seconds, Five Qns",
     "ogTitle": "cast it fast - Farcaster quiz",
     "ogImageUrl": "https://cast-it-fast.vercel.app/og.png",
-    "castShareUrl": "https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast",
+    "castShareUrl": "https://cast-it-fast.vercel.app",
     "ogDescription": "play the trivia game on Farcaster "
   },
   "accountAssociation": {
