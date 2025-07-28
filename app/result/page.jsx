@@ -17,72 +17,84 @@ function ResultContent() {
   const [animateScore, setAnimateScore] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [submissionStatus, setSubmissionStatus] = useState("");
+  const [isSDKReady, setIsSDKReady] = useState(false);
 
   // Wagmi hooks
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+  const { 
+    writeContract, 
+    data: hash, 
+    isPending, 
+    error: writeError,
+    isError: isWriteError 
+  } = useWriteContract();
+  
+  const { 
+    isLoading: isConfirming, 
+    isSuccess: isConfirmed,
+    error: receiptError 
+  } = useWaitForTransactionReceipt({
     hash,
   });
 
   // Auto-connect wallet when component loads
   useEffect(() => {
-    if (!isConnected && connectors.length > 0) {
-      connect({ connector: connectors[0] });
-    }
+    const connectWallet = async () => {
+      try {
+        if (!isConnected && connectors.length > 0) {
+          await connect({ connector: connectors[0] });
+        }
+      } catch (error) {
+        console.error("Failed to connect wallet:", error);
+        setSubmissionStatus("❌ Failed to connect wallet");
+      }
+    };
+
+    connectWallet();
   }, [isConnected, connectors, connect]);
 
   // Handle transaction confirmation
   useEffect(() => {
     if (isConfirmed) {
       setSubmissionStatus("🎉 Score successfully submitted to leaderboard!");
-    } else if (error) {
+    } else if (isWriteError || receiptError) {
       setSubmissionStatus("❌ Failed to submit score. Please try again.");
-      console.error("Transaction error:", error);
+      console.error("Transaction error:", writeError || receiptError);
     }
-  }, [isConfirmed, error]);
+  }, [isConfirmed, isWriteError, receiptError, writeError]);
 
-  // Submit to leaderboard using Wagmi
-const submitToLeaderboard = async () => {
-  if (!isConnected || !score || !currentUser?.displayName) {
-    setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
-    return;
-  }
-
-  try {
-    setSubmissionStatus("📝 Submitting to leaderboard...");
-
-    const txHash = await writeContract({
-      address: leaderboardContract.address,
-      abi: leaderboardContract.abi,
-      functionName: "submitScore",
-      args: [currentUser.displayName, parseInt(score)],
-    });
-
-    setSubmissionStatus("⏳ Waiting for confirmation...");
-    // Confirmation handled by isConfirmed hook
-  } catch (err) {
-    console.error("Submission failed:", err);
-    setSubmissionStatus("❌ Failed to submit score.");
-  }
-};
-
+  // Initialize Farcaster SDK with better error handling
   useEffect(() => {
-    // Initialize SDK and get user context
     const initializeUser = async () => {
       try {
-        await sdk.actions.ready();
-        const context = sdk.context;
+        // Check if we're in a Farcaster environment
+        if (typeof window === 'undefined') return;
+        
+        // Initialize SDK with timeout
+        const initPromise = sdk.actions.ready();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('SDK timeout')), 5000)
+        );
 
+        await Promise.race([initPromise, timeoutPromise]);
+        setIsSDKReady(true);
+
+        const context = sdk.context;
         if (context?.user) {
           console.log("🧠 Farcaster User Context:", context.user);
 
           let displayName;
           try {
-            displayName = await context.user.displayName();
-          } catch {
-            displayName = context.user.displayName;
+            // Handle both async and sync displayName
+            if (typeof context.user.displayName === 'function') {
+              displayName = await context.user.displayName();
+            } else {
+              displayName = context.user.displayName;
+            }
+          } catch (error) {
+            console.warn("Failed to get display name:", error);
+            displayName = context.user.username || `User${context.user.fid}`;
           }
 
           setCurrentUser({
@@ -94,54 +106,116 @@ const submitToLeaderboard = async () => {
         }
       } catch (error) {
         console.error("Farcaster SDK initialization failed:", error);
+        setIsSDKReady(false);
+        // Don't set currentUser but don't show error to user
       }
     };
 
     initializeUser();
   }, []);
 
-  useEffect(() => {
-    // Trigger animations on mount
-    setShowConfetti(true);
-    setTimeout(() => setAnimateScore(true), 500);
-
-    // Save game history - same logic as before
-    if (!score || !correct) return;
-
-    const numScore = parseInt(score) || 0;
-    const numCorrect = parseInt(correct) || 0;
-    const totalQuestions = 15;
-    const accuracy = Math.round((numCorrect / totalQuestions) * 100);
-
-    if (numScore === 0 && numCorrect === 0) return;
-
-    const gameResult = {
-      score: numScore,
-      correct: numCorrect,
-      accuracy: accuracy,
-      date: new Date().toISOString()
-    };
-
-    const existingHistory = JSON.parse(localStorage.getItem("playHistory") || "[]");
-
-    const now = new Date(gameResult.date).getTime();
-    const isDuplicate = existingHistory.some(entry =>
-      entry.score === gameResult.score &&
-      entry.correct === gameResult.correct &&
-      entry.accuracy === gameResult.accuracy &&
-      Math.abs(new Date(entry.date).getTime() - now) < 5000
-    );
-
-    if (isDuplicate) {
-      console.log("Duplicate game entry detected, skipping save");
+  // Submit to leaderboard with better error handling
+  const submitToLeaderboard = async () => {
+    if (!isConnected || !score || !currentUser?.displayName) {
+      setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
       return;
     }
 
-    const updatedHistory = [gameResult, ...existingHistory];
-    const limitedHistory = updatedHistory.slice(0, 10);
+    try {
+      setSubmissionStatus("📝 Submitting to leaderboard...");
 
-    localStorage.setItem("playHistory", JSON.stringify(limitedHistory));
-    console.log("Game result saved to history:", gameResult);
+      // Validate inputs
+      const scoreValue = parseInt(score);
+      const displayName = currentUser.displayName.toString();
+
+      if (isNaN(scoreValue) || scoreValue < 0) {
+        throw new Error("Invalid score value");
+      }
+
+      if (!displayName || displayName.length === 0) {
+        throw new Error("Invalid display name");
+      }
+
+      // Call writeContract with proper error handling
+      await writeContract({
+        address: leaderboardContract.address,
+        abi: leaderboardContract.abi,
+        functionName: "submitScore",
+        args: [displayName, scoreValue],
+      });
+
+      setSubmissionStatus("⏳ Waiting for confirmation...");
+    } catch (err) {
+      console.error("Submission failed:", err);
+      let errorMessage = "❌ Failed to submit score.";
+      
+      if (err.message?.includes("User rejected")) {
+        errorMessage = "❌ Transaction was rejected by user.";
+      } else if (err.message?.includes("insufficient funds")) {
+        errorMessage = "❌ Insufficient funds for transaction.";
+      }
+      
+      setSubmissionStatus(errorMessage);
+    }
+  };
+
+  // Save game history with better localStorage handling
+  useEffect(() => {
+    const saveGameHistory = () => {
+      try {
+        if (!score || !correct) return;
+
+        const numScore = parseInt(score) || 0;
+        const numCorrect = parseInt(correct) || 0;
+        const totalQuestions = 15;
+        const accuracy = Math.round((numCorrect / totalQuestions) * 100);
+
+        if (numScore === 0 && numCorrect === 0) return;
+
+        const gameResult = {
+          score: numScore,
+          correct: numCorrect,
+          accuracy: accuracy,
+          date: new Date().toISOString()
+        };
+
+        // Check if localStorage is available
+        if (typeof Storage === "undefined") {
+          console.warn("localStorage not available");
+          return;
+        }
+
+        const existingHistory = JSON.parse(localStorage.getItem("playHistory") || "[]");
+
+        const now = new Date(gameResult.date).getTime();
+        const isDuplicate = existingHistory.some(entry =>
+          entry.score === gameResult.score &&
+          entry.correct === gameResult.correct &&
+          entry.accuracy === gameResult.accuracy &&
+          Math.abs(new Date(entry.date).getTime() - now) < 5000
+        );
+
+        if (isDuplicate) {
+          console.log("Duplicate game entry detected, skipping save");
+          return;
+        }
+
+        const updatedHistory = [gameResult, ...existingHistory];
+        const limitedHistory = updatedHistory.slice(0, 10);
+
+        localStorage.setItem("playHistory", JSON.stringify(limitedHistory));
+        console.log("Game result saved to history:", gameResult);
+      } catch (error) {
+        console.error("Failed to save game history:", error);
+      }
+    };
+
+    // Trigger animations on mount
+    setShowConfetti(true);
+    setTimeout(() => setAnimateScore(true), 500);
+    
+    // Save game history
+    saveGameHistory();
   }, [score, correct]);
 
   const getPerformanceMessage = (score, correct) => {
@@ -174,18 +248,20 @@ const submitToLeaderboard = async () => {
     return 'Beginner';
   };
 
-  const shareTofarcaster = () => {
-    const numScore = parseInt(score) || 0;
-    const numCorrect = parseInt(correct) || 0;
+  const shareToFarcaster = () => {
+    try {
+      const numScore = parseInt(score) || 0;
+      const numCorrect = parseInt(correct) || 0;
 
-    const shareText = `I scored ${numScore} and answered ${numCorrect} questions on Cast It Fast trivia game on Farcaster, can you beat me?`; // ✅ FIXED: Added backticks
+      const shareText = `I scored ${numScore} and answered ${numCorrect} questions on Cast It Fast trivia game on Farcaster, can you beat me?`;
+      const encodedText = encodeURIComponent(shareText);
+      const miniappUrl = encodeURIComponent("https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast");
+      const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`;
 
-    const encodedText = encodeURIComponent(shareText);
-    const miniappUrl = encodeURIComponent("https://farcaster.xyz/miniapps/Y6Z-3Zz-bf_T/cast-it-fast");
-
-    const farcasterUrl = `https://warpcast.com/~/compose?text=${encodedText}&embeds[]=${miniappUrl}`; // ✅ FIXED: Added backticks
-
-    window.open(farcasterUrl, '_blank', 'noopener,noreferrer');
+      window.open(farcasterUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error("Failed to share to Farcaster:", error);
+    }
   };
 
   // Get button text and status for leaderboard submission
@@ -307,7 +383,7 @@ const submitToLeaderboard = async () => {
 
           {/* Farcaster Share Button */}
           <button
-            onClick={shareTofarcaster}
+            onClick={shareToFarcaster}
             className="group bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white px-5 py-2.5 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
           >
             <span className="mr-2">🚀</span>
