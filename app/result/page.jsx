@@ -6,6 +6,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import leaderboardContract from "@/lib/leaderboardContract";
 import { sdk } from "@farcaster/miniapp-sdk";
+import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 
 // Separate component that uses useSearchParams
 function ResultContent() {
@@ -45,31 +46,37 @@ function ResultContent() {
 
   // Submit to leaderboard using Wagmi
   const submitToLeaderboard = async () => {
-    if (!isConnected || !score || !currentUser?.displayName) {
-      setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
-      return;
+  if (!isConnected || !score || !currentUser?.displayName) {
+    setSubmissionStatus("❌ Please ensure wallet is connected and user data is available");
+    return;
+  }
+
+  try {
+    setSubmissionStatus("📝 Submitting to leaderboard...");
+
+    const displayName = currentUser.displayName.toString();
+
+    const txHash = await writeContractAsync({
+      address: leaderboardContract.address,
+      abi: leaderboardContract.abi,
+      functionName: "submitScore",
+      args: [displayName, parseInt(score)],
+    });
+
+    setSubmissionStatus("⏳ Waiting for confirmation...");
+
+    const receipt = await waitForTransactionReceipt({ hash: txHash });
+
+    if (receipt.status === "success") {
+      setSubmissionStatus("✅ Score submitted!");
+    } else {
+      setSubmissionStatus("❌ Transaction failed.");
     }
-
-    try {
-      setSubmissionStatus("📝 Submitting to leaderboard...");
-
-      const displayName = currentUser?.displayName?.toString?.() ?? "";
-
-      writeContract({
-        address: leaderboardContract.address,
-        abi: leaderboardContract.abi,
-        functionName: 'submitScore',
-        args: [displayName, parseInt(score)],
-      });
-    } catch (err) {
-      console.error("Submission failed:", err);
-      if (err?.message) {
-        setSubmissionStatus(`❌ ${err.message}`); // ✅ FIXED: Added backticks
-      } else {
-        setSubmissionStatus("❌ Failed to submit score. Please try again.");
-      }
-    }
-  };
+  } catch (err) {
+    console.error("Submission failed:", err);
+    setSubmissionStatus("❌ Failed to submit score.");
+  }
+};
 
   useEffect(() => {
     // Initialize SDK and get user context
