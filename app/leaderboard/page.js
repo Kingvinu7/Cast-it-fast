@@ -3,12 +3,40 @@ import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { getContract } from "@/lib/leaderboardContract";
 import { useRouter } from "next/navigation";
+import { sdk } from "@farcaster/miniapp-sdk";
 
 export default function LeaderboardPage() {
   const router = useRouter();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [safeAreaInsets, setSafeAreaInsets] = useState({
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0
+  });
+
+  // Initialize Farcaster SDK for safe area insets
+  useEffect(() => {
+    const initializeFarcaster = async () => {
+      try {
+        if (typeof window === 'undefined') return;
+        
+        await sdk.actions.ready();
+        const context = sdk.context;
+        
+        if (context?.client?.safeAreaInsets) {
+          setSafeAreaInsets(context.client.safeAreaInsets);
+          console.log("📱 Leaderboard safe area insets:", context.client.safeAreaInsets);
+        }
+      } catch (error) {
+        console.warn("Farcaster SDK initialization failed in leaderboard:", error);
+      }
+    };
+
+    initializeFarcaster();
+  }, []);
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
@@ -136,7 +164,15 @@ export default function LeaderboardPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900 to-purple-900 text-white flex items-center justify-center px-4 py-6">
+    <main 
+      className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900 to-purple-900 text-white flex items-center justify-center px-4 py-6"
+      style={{
+        paddingTop: Math.max(24, safeAreaInsets.top + 16),
+        paddingBottom: Math.max(24, safeAreaInsets.bottom + 16),
+        paddingLeft: Math.max(16, safeAreaInsets.left + 8),
+        paddingRight: Math.max(16, safeAreaInsets.right + 8),
+      }}
+    >
       <div className="w-full max-w-md">
 
         {/* Header with Home and Refresh buttons */}
