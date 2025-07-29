@@ -134,6 +134,9 @@ export default function GamePage() {
   
   router.push(`/result?score=${finalScore}&correct=${finalCorrect}`);
         }
+      }
+
+    }, 100);
         
   function handleReplay() {
     // Don't remove used questions - they should stay permanently used
