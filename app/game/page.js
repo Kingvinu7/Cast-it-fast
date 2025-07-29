@@ -14,7 +14,7 @@ export default function GamePage() {
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [timeLeft, setTimeLeft] = useState(10);
-  const [totalCorrect, setTotalCorrect] = useState(0);
+  const [totalCorrect, setTotalCorrect] = useState(1);
 
   const [roundQuestions, setRoundQuestions] = useState([]);
   const [correctInRound, setCorrectInRound] = useState(0);
