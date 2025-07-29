@@ -15,6 +15,7 @@ export default function LeaderboardPage() {
   const [selectedEntries, setSelectedEntries] = useState(new Set());
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
+  const [canOpenProfiles, setCanOpenProfiles] = useState(false); // Track if we can open profiles
   const [safeAreaInsets, setSafeAreaInsets] = useState({
     top: 0,
     bottom: 0,
@@ -38,11 +39,10 @@ export default function LeaderboardPage() {
     hash: deleteHash,
   });
 
-  // Your wallet address (replace with your actual address)
   const OWNER_ADDRESS = "0xE595a019B48378FEE0971ee1703537964E2A3B05";
   const isOwner = isConnected && address?.toLowerCase() === OWNER_ADDRESS.toLowerCase();
 
-  // Initialize Farcaster SDK for safe area insets
+  // Initialize Farcaster SDK for safe area insets and profile capabilities
   useEffect(() => {
     const initializeFarcaster = async () => {
       try {
@@ -55,6 +55,12 @@ export default function LeaderboardPage() {
           setSafeAreaInsets(context.client.safeAreaInsets);
           console.log("📱 Leaderboard safe area insets:", context.client.safeAreaInsets);
         }
+
+        // Check if we can open profiles (only available in Farcaster Mini App environment)
+        const isInMiniApp = await sdk.isInMiniApp();
+        setCanOpenProfiles(isInMiniApp);
+        console.log("👤 Profile viewing available:", isInMiniApp);
+        
       } catch (error) {
         console.warn("Farcaster SDK initialization failed in leaderboard:", error);
       }
@@ -63,15 +69,56 @@ export default function LeaderboardPage() {
     initializeFarcaster();
   }, []);
 
+  // Function to open a user's Farcaster profile
+  const openUserProfile = async (entry) => {
+    if (!canOpenProfiles) {
+      console.log("❌ Profile viewing not available - not in Farcaster Mini App");
+      return;
+    }
+
+    try {
+      // Try to extract FID from display name if it follows the pattern "FCUser123456"
+      let fid = null;
+      
+      if (entry.displayName && entry.displayName.startsWith('FCUser')) {
+        const fidMatch = entry.displayName.match(/FCUser(\d+)/);
+        if (fidMatch) {
+          fid = parseInt(fidMatch[1]);
+        }
+      }
+
+      if (fid && fid > 0) {
+        console.log(`👤 Opening profile for FID: ${fid}`);
+        await sdk.actions.openProfile({ fid: fid });
+      } else {
+        console.log("❌ No valid FID found for this user");
+        // Fallback: show alert with user info
+        alert(`User: ${entry.displayName}\nScore: ${entry.score}\nAddress: ${entry.address.slice(0, 6)}...${entry.address.slice(-4)}`);
+      }
+      
+    } catch (error) {
+      console.error("❌ Failed to open profile:", error);
+      
+      if (error.message === "RejectedByUser") {
+        console.log("User cancelled profile view");
+      } else if (error.message === "InvalidFid") {
+        console.log("Invalid FID provided");
+        alert("Could not find this user's Farcaster profile");
+      } else {
+        console.log("Profile view error:", error.message);
+        alert("Unable to open profile at this time");
+      }
+    }
+  };
+
   // Refresh leaderboard after successful deletion
   useEffect(() => {
     if (isDeleteConfirmed) {
       console.log("Delete confirmed, refreshing leaderboard...");
       setSelectedEntries(new Set());
       setIsDeleteMode(false);
-      // Add delay to ensure blockchain state is updated
       setTimeout(() => {
-        fetchLeaderboard(true); // Force refresh
+        fetchLeaderboard(true);
       }, 2000);
     }
   }, [isDeleteConfirmed]);
@@ -84,7 +131,7 @@ export default function LeaderboardPage() {
       } catch (error) {
         if (i === maxRetries - 1) throw error;
         
-        const delay = baseDelay * Math.pow(2, i); // Exponential backoff
+        const delay = baseDelay * Math.pow(2, i);
         console.log(`⏳ Retry ${i + 1}/${maxRetries} in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
@@ -97,7 +144,6 @@ export default function LeaderboardPage() {
       setError(null);
       console.log(`🔄 Fetching leaderboard... ${forceRefresh ? '(Force refresh)' : ''}`);
 
-      // Base network RPC providers with cache busting
       const timestamp = Date.now();
       const rpcProviders = [
         `https://mainnet.base.org?t=${timestamp}`,
@@ -109,13 +155,11 @@ export default function LeaderboardPage() {
       let provider;
       let contract;
 
-      // Try each provider until one works
       for (const rpcUrl of rpcProviders) {
         try {
           console.log(`🔗 Trying RPC: ${rpcUrl.split('?')[0]}`);
           provider = new ethers.JsonRpcProvider(rpcUrl);
           
-          // Verify we're on Base network (chainId: 8453)
           const network = await provider.getNetwork();
           if (network.chainId !== 8453n) {
             console.log(`❌ Wrong network: ${network.chainId}, expected Base (8453)`);
@@ -123,8 +167,6 @@ export default function LeaderboardPage() {
           }
 
           contract = getContract(provider);
-          
-          // Test the connection with latest block
           const blockNumber = await provider.getBlockNumber();
           console.log(`✅ Connected to Base network, block: ${blockNumber}`);
           break;
@@ -138,7 +180,6 @@ export default function LeaderboardPage() {
         throw new Error("Unable to connect to Base network");
       }
 
-      // First, get total entries count for verification
       let total;
       try {
         total = await retryWithBackoff(() => contract.getTotalEntries());
@@ -154,7 +195,6 @@ export default function LeaderboardPage() {
         console.log(`📥 Fetching all ${totalNum} entries in one call...`);
         
         try {
-          // Try to get all entries in a single call (most efficient)
           const allEntries = await retryWithBackoff(() => contract.getAllEntries());
           console.log(`✅ Got ${allEntries.length} entries from getAllEntries()`);
           
@@ -169,14 +209,12 @@ export default function LeaderboardPage() {
           console.warn(`⚠️ getAllEntries() failed: ${getAllError.message}`);
           console.log(`📥 Falling back to individual getEntry() calls...`);
           
-          // Fallback to individual calls with better error handling
-          const batchSize = 3; // Smaller batch size to avoid rate limits
+          const batchSize = 3;
           
           for (let i = 0; i < totalNum; i += batchSize) {
             const batch = [];
             const endIndex = Math.min(i + batchSize, totalNum);
             
-            // Create batch of promises with retry logic
             for (let j = i; j < endIndex; j++) {
               batch.push(
                 retryWithBackoff(() => contract.getEntry(j))
@@ -188,10 +226,8 @@ export default function LeaderboardPage() {
               );
             }
 
-            // Wait for batch to complete
             const batchResults = await Promise.all(batch);
             
-            // Process batch results
             for (const { index, result } of batchResults) {
               if (result) {
                 const [name, user, score] = result;
@@ -204,23 +240,20 @@ export default function LeaderboardPage() {
               }
             }
 
-            // Add delay between batches to avoid rate limiting
             if (endIndex < totalNum) {
               console.log(`⏳ Processed ${endIndex}/${totalNum} entries, waiting...`);
-              await new Promise(resolve => setTimeout(resolve, 800)); // Increased delay
+              await new Promise(resolve => setTimeout(resolve, 800));
             }
           }
         }
       }
 
-      // Verify we got all entries
       console.log(`📊 Expected ${totalNum} entries, got ${results.length} entries`);
       
       if (results.length < totalNum) {
         console.warn(`⚠️ Missing ${totalNum - results.length} entries! Some entries failed to load.`);
       }
 
-      // Sort by score (highest first)
       const sorted = results
         .filter(entry => entry.score >= 0)
         .sort((a, b) => b.score - a.score);
@@ -248,7 +281,7 @@ export default function LeaderboardPage() {
     setLoading(true);
     setSelectedEntries(new Set());
     setIsDeleteMode(false);
-    fetchLeaderboard(true); // Force refresh
+    fetchLeaderboard(true);
   };
 
   const toggleEntrySelection = (index) => {
@@ -269,7 +302,6 @@ export default function LeaderboardPage() {
       console.log("🗑️ Deleting entries at indices:", indicesToDelete);
 
       if (indicesToDelete.length === 1) {
-        // Single delete
         await writeContract({
           address: leaderboardContract.address,
           abi: leaderboardContract.abi,
@@ -277,7 +309,6 @@ export default function LeaderboardPage() {
           args: [indicesToDelete[0]],
         });
       } else {
-        // Batch delete
         await writeContract({
           address: leaderboardContract.address,
           abi: leaderboardContract.abi,
@@ -292,7 +323,6 @@ export default function LeaderboardPage() {
     }
   };
 
-  // Format last refresh time
   const formatRefreshTime = (timestamp) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString();
@@ -320,7 +350,6 @@ export default function LeaderboardPage() {
           </button>
           
           <div className="flex gap-2">
-            {/* Owner-only delete button */}
             {isOwner && (
               <button
                 onClick={() => setIsDeleteMode(!isDeleteMode)}
@@ -371,6 +400,13 @@ export default function LeaderboardPage() {
         )}
 
         <h1 className="text-2xl font-bold mb-6 text-center">🏆 Leaderboard</h1>
+
+        {/* Profile viewing info */}
+        {canOpenProfiles && (
+          <div className="text-center text-xs text-blue-400 mb-4">
+            👤 Tap player names to view their Farcaster profiles
+          </div>
+        )}
 
         {/* Last refresh indicator */}
         <div className="text-center text-xs text-gray-400 mb-4">
@@ -435,10 +471,29 @@ export default function LeaderboardPage() {
                   }`}>
                     {i === 0 ? "👑" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`}
                   </span>
+                  
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-sm font-semibold truncate max-w-[140px]">
+                    {/* Clickable player name for profile viewing */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent triggering delete mode selection
+                        if (!isDeleteMode) {
+                          openUserProfile(entry);
+                        }
+                      }}
+                      className={`text-sm font-semibold truncate max-w-[140px] text-left ${
+                        canOpenProfiles && !isDeleteMode 
+                          ? 'hover:text-blue-400 hover:underline cursor-pointer' 
+                          : ''
+                      }`}
+                      disabled={isDeleteMode}
+                    >
                       {entry.displayName || `Player ${i + 1}`}
-                    </span>
+                      {canOpenProfiles && !isDeleteMode && (
+                        <span className="ml-1 text-xs opacity-60">👤</span>
+                      )}
+                    </button>
+                    
                     <span className="text-xs text-gray-400 truncate max-w-[150px]">
                       {entry.address && entry.address !== "0x0000000000000000000000000000000000000000" 
                         ? `${entry.address.slice(0, 6)}...${entry.address.slice(-4)}`
@@ -447,6 +502,7 @@ export default function LeaderboardPage() {
                     </span>
                   </div>
                 </div>
+                
                 <div className="flex flex-col items-end">
                   <span className={`font-bold text-lg ${
                     i === 0 ? 'text-yellow-400' :
@@ -483,7 +539,7 @@ export default function LeaderboardPage() {
             Delete TX: {deleteHash.slice(0, 8)}...{deleteHash.slice(-6)}
           </div>
         )}
-      </div>
+          </div>
     </main>
   );
 }
