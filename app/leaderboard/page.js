@@ -1,7 +1,8 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
-import leaderboardContract, { getContract } from "@/lib/leaderboardContract"; // Import both
+import leaderboardContract, { getContract } from "@/lib/leaderboardContract";
 import { useRouter } from "next/navigation";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { sdk } from "@farcaster/miniapp-sdk";
@@ -13,7 +14,7 @@ export default function LeaderboardPage() {
   const [error, setError] = useState(null);
   const [selectedEntries, setSelectedEntries] = useState(new Set());
   const [isDeleteMode, setIsDeleteMode] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(Date.now()); // Add refresh tracking
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
   const [safeAreaInsets, setSafeAreaInsets] = useState({
     top: 0,
     bottom: 0,
@@ -23,23 +24,22 @@ export default function LeaderboardPage() {
 
   // Wagmi hooks for delete functionality
   const { address, isConnected } = useAccount();
-  const { 
-    writeContract, 
-    data: deleteHash, 
+  const {
+    writeContract,
+    data: deleteHash,
     isPending: isDeletePending,
-    error: deleteError 
+    error: deleteError
   } = useWriteContract();
-  
-  const { 
-    isLoading: isDeleteConfirming, 
-    isSuccess: isDeleteConfirmed 
+
+  const {
+    isLoading: isDeleteConfirming,
+    isSuccess: isDeleteConfirmed
   } = useWaitForTransactionReceipt({
     hash: deleteHash,
   });
 
   // Your wallet address (replace with your actual address)
   const OWNER_ADDRESS = "0xE595a019B48378FEE0971ee1703537964E2A3B05";
-
   const isOwner = isConnected && address?.toLowerCase() === OWNER_ADDRESS.toLowerCase();
 
   // Initialize Farcaster SDK for safe area insets
@@ -76,11 +76,25 @@ export default function LeaderboardPage() {
     }
   }, [isDeleteConfirmed]);
 
+  // Retry function for critical calls
+  const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === maxRetries - 1) throw error;
+        
+        const delay = baseDelay * Math.pow(2, i); // Exponential backoff
+        console.log(`⏳ Retry ${i + 1}/${maxRetries} in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  };
+
   const fetchLeaderboard = async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError(null);
-
       console.log(`🔄 Fetching leaderboard... ${forceRefresh ? '(Force refresh)' : ''}`);
 
       // Base network RPC providers with cache busting
@@ -94,7 +108,7 @@ export default function LeaderboardPage() {
 
       let provider;
       let contract;
-      
+
       // Try each provider until one works
       for (const rpcUrl of rpcProviders) {
         try {
@@ -107,7 +121,7 @@ export default function LeaderboardPage() {
             console.log(`❌ Wrong network: ${network.chainId}, expected Base (8453)`);
             continue;
           }
-          
+
           contract = getContract(provider);
           
           // Test the connection with latest block
@@ -124,58 +138,86 @@ export default function LeaderboardPage() {
         throw new Error("Unable to connect to Base network");
       }
 
-      // Get total entries with retry logic
+      // First, get total entries count for verification
       let total;
-      let retryCount = 0;
-      const maxRetries = 3;
-      
-      while (retryCount < maxRetries) {
-        try {
-          total = await contract.getTotalEntries();
-          console.log(`📊 Total entries: ${total.toString()}`);
-          break;
-        } catch (contractError) {
-          retryCount++;
-          console.warn(`⚠️ Contract call failed (attempt ${retryCount}):`, contractError.message);
-          
-          if (retryCount === maxRetries) {
-            throw new Error(`Contract method failed after ${maxRetries} attempts`);
-          }
-          
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-        }
+      try {
+        total = await retryWithBackoff(() => contract.getTotalEntries());
+        console.log(`📊 Total entries: ${total.toString()}`);
+      } catch (contractError) {
+        throw new Error(`Failed to get total entries: ${contractError.message}`);
       }
 
       const totalNum = parseInt(total.toString());
-      const results = [];
+      let results = [];
 
       if (totalNum > 0) {
-        console.log(`📥 Fetching ${totalNum} entries...`);
+        console.log(`📥 Fetching all ${totalNum} entries in one call...`);
         
-        // Fetch entries with error handling
-        for (let i = 0; i < totalNum; i++) {
-          try {
-            const result = await contract.getEntry(i);
-            if (result) {
-              const [name, user, score] = result;
-              results.push({
-                index: i,
-                displayName: name || `Player ${i + 1}`,
-                address: user || "0x0000000000000000000000000000000000000000",
-                score: parseInt(score.toString()) || 0,
-              });
-            }
-          } catch (entryError) {
-            console.warn(`⚠️ Failed to fetch entry ${i}:`, entryError.message);
-            // Continue with other entries
-          }
+        try {
+          // Try to get all entries in a single call (most efficient)
+          const allEntries = await retryWithBackoff(() => contract.getAllEntries());
+          console.log(`✅ Got ${allEntries.length} entries from getAllEntries()`);
           
-          // Add small delay every 10 entries to avoid rate limits
-          if (i > 0 && i % 10 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+          results = allEntries.map((entry, index) => ({
+            index: index,
+            displayName: entry.displayName || `Player ${index + 1}`,
+            address: entry.user || "0x0000000000000000000000000000000000000000",
+            score: parseInt(entry.score.toString()) || 0,
+          }));
+
+        } catch (getAllError) {
+          console.warn(`⚠️ getAllEntries() failed: ${getAllError.message}`);
+          console.log(`📥 Falling back to individual getEntry() calls...`);
+          
+          // Fallback to individual calls with better error handling
+          const batchSize = 3; // Smaller batch size to avoid rate limits
+          
+          for (let i = 0; i < totalNum; i += batchSize) {
+            const batch = [];
+            const endIndex = Math.min(i + batchSize, totalNum);
+            
+            // Create batch of promises with retry logic
+            for (let j = i; j < endIndex; j++) {
+              batch.push(
+                retryWithBackoff(() => contract.getEntry(j))
+                  .then(result => ({ index: j, result }))
+                  .catch(err => {
+                    console.warn(`⚠️ Failed to fetch entry ${j} after retries:`, err.message);
+                    return { index: j, result: null };
+                  })
+              );
+            }
+
+            // Wait for batch to complete
+            const batchResults = await Promise.all(batch);
+            
+            // Process batch results
+            for (const { index, result } of batchResults) {
+              if (result) {
+                const [name, user, score] = result;
+                results.push({
+                  index: index,
+                  displayName: name || `Player ${index + 1}`,
+                  address: user || "0x0000000000000000000000000000000000000000",
+                  score: parseInt(score.toString()) || 0,
+                });
+              }
+            }
+
+            // Add delay between batches to avoid rate limiting
+            if (endIndex < totalNum) {
+              console.log(`⏳ Processed ${endIndex}/${totalNum} entries, waiting...`);
+              await new Promise(resolve => setTimeout(resolve, 800)); // Increased delay
+            }
           }
         }
+      }
+
+      // Verify we got all entries
+      console.log(`📊 Expected ${totalNum} entries, got ${results.length} entries`);
+      
+      if (results.length < totalNum) {
+        console.warn(`⚠️ Missing ${totalNum - results.length} entries! Some entries failed to load.`);
       }
 
       // Sort by score (highest first)
@@ -183,7 +225,7 @@ export default function LeaderboardPage() {
         .filter(entry => entry.score >= 0)
         .sort((a, b) => b.score - a.score);
 
-      console.log(`✅ Leaderboard loaded: ${sorted.length} valid entries`);
+      console.log(`✅ Leaderboard loaded: ${sorted.length} valid entries (${totalNum} total expected)`);
       setEntries(sorted);
       setLastRefresh(Date.now());
 
@@ -328,8 +370,8 @@ export default function LeaderboardPage() {
           </div>
         )}
 
-        <h1 className="text-2xl font-bold mb-2 text-center">🏆 Leaderboard</h1>
-        
+        <h1 className="text-2xl font-bold mb-6 text-center">🏆 Leaderboard</h1>
+
         {/* Last refresh indicator */}
         <div className="text-center text-xs text-gray-400 mb-4">
           {lastRefresh && `Last updated: ${formatRefreshTime(lastRefresh)}`}
@@ -363,7 +405,7 @@ export default function LeaderboardPage() {
           <div className="space-y-2">
             {entries.slice(0, 100).map((entry, i) => (
               <div
-                key={`${entry.address}-${entry.index}-${lastRefresh}`} // Add refresh timestamp to key
+                key={`${entry.address}-${entry.index}`}
                 className={`flex justify-between items-center backdrop-blur-sm border px-4 py-2 rounded-lg transition-all hover:scale-[1.01] ${
                   isDeleteMode && selectedEntries.has(entry.index)
                     ? 'bg-red-500/20 border-red-500/40'
