@@ -9,7 +9,6 @@ export default function HomePage() {
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [isClient, setIsClient] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [canAddMiniApp, setCanAddMiniApp] = useState(false); // Track if user can add the app
 
   useEffect(() => {
     const initMiniapp = async () => {
@@ -29,7 +28,27 @@ export default function HomePage() {
 
         // Check if we're in a Farcaster Mini App environment
         const isInMiniApp = await sdk.isInMiniApp();
-        setCanAddMiniApp(isInMiniApp);
+        
+        if (isInMiniApp) {
+          // Automatically prompt user to add the Mini App on first visit
+          try {
+            console.log("🚀 Automatically prompting to add Mini App...");
+            await sdk.actions.addMiniApp();
+            console.log("✅ Mini App add prompt shown successfully!");
+          } catch (error) {
+            console.log("📝 Add Mini App prompt result:", error.message);
+            
+            if (error.message === "RejectedByUser") {
+              console.log("👤 User chose not to add the Mini App");
+            } else if (error.message === "InvalidDomainManifestJson") {
+              console.error("❌ farcaster.json manifest issue");
+            } else if (error.message === "AlreadyAdded") {
+              console.log("✅ Mini App already added by user");
+            } else {
+              console.log("ℹ️ Other result:", error.message);
+            }
+          }
+        }
         
       } catch (error) {
         console.error("Farcaster SDK initialization failed:", error);
@@ -40,32 +59,6 @@ export default function HomePage() {
 
     initMiniapp();
   }, []);
-
-  // Function to handle adding the Mini App
-  const handleAddMiniApp = async () => {
-    try {
-      await sdk.actions.addMiniApp();
-      console.log("✅ Mini App added successfully!");
-      
-      // Optional: Show success feedback to user
-      alert("🎉 Cast-it-Fast has been added to your apps!");
-      
-    } catch (error) {
-      console.error("❌ Failed to add Mini App:", error);
-      
-      if (error.message === "RejectedByUser") {
-        console.log("User rejected adding the Mini App");
-        // Optional: Show gentle message
-        alert("No worries! You can add the app later if you change your mind.");
-      } else if (error.message === "InvalidDomainManifestJson") {
-        console.error("Invalid farcaster.json manifest");
-        alert("Sorry, there's a configuration issue. Please try again later.");
-      } else {
-        console.error("Unknown error:", error);
-        alert("Something went wrong. Please try again.");
-      }
-    }
-  };
 
   useEffect(() => {
     // Generate random positions on client side to avoid hydration mismatch
@@ -134,19 +127,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Add Mini App suggestion (only show if in Farcaster) */}
-        {canAddMiniApp && (
-          <div className="mb-4 p-3 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20">
-            <p className="text-xs text-white/80 mb-2">💡 Add this game to your Farcaster apps for quick access!</p>
-            <button
-              onClick={handleAddMiniApp}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 w-full"
-            >
-              ➕ Add to My Apps
-            </button>
-          </div>
-        )}
-
         <button
           onClick={() => router.push("/game")}
           className="bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-6 py-3 rounded-xl text-lg font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 shadow-lg hover:shadow-xl w-full touch-manipulation"
@@ -187,4 +167,4 @@ export default function HomePage() {
       `}</style>
     </main>
   );
-}
+ }
