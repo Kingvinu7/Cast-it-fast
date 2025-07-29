@@ -112,13 +112,29 @@ export default function GamePage() {
             setShowRoundTransition(false);
           }, 1500);
         } else {
-          // Navigate immediately to results when game ends
-          router.push(`/result?score=${score}&correct=${totalCorrect}`);
-        }
-      }
-    }, 100);
+  // Calculate final values including pending state updates
+  let finalScore = score;
+  let finalCorrect = totalCorrect;
+  
+  // Add round completion bonus if all questions were correct
+  if (correctInRound === QUESTIONS_PER_ROUND) {
+    finalScore += 20;
   }
-
+  
+  // Since the last answer was just processed, we need to account for it
+  // if this was the final correct answer
+  const currentQuestion = roundQuestions[questionIndex];
+  if (selectedOption === currentQuestion.options[currentQuestion.answer]) {
+    finalCorrect = totalCorrect + 1; // Account for the final correct answer
+  }
+  
+  console.log("🎯 Game Complete - Final Stats:");
+  console.log("📊 Final Score:", finalScore);
+  console.log("✅ Total Correct:", finalCorrect);
+  
+  router.push(`/result?score=${finalScore}&correct=${finalCorrect}`);
+        }
+        
   function handleReplay() {
     // Don't remove used questions - they should stay permanently used
     setCurrentRound(1);
