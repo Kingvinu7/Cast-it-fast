@@ -2,13 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { sdk } from "@farcaster/miniapp-sdk"; // ← ✅ Import Miniapp SDK
+import { sdk } from "@farcaster/miniapp-sdk";
 
 export default function HomePage() {
   const router = useRouter();
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [isClient, setIsClient] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null); // ← Fix: Add this missing state
+  const [currentUser, setCurrentUser] = useState(null);
+  const [canAddMiniApp, setCanAddMiniApp] = useState(false); // Track if user can add the app
 
   useEffect(() => {
     const initMiniapp = async () => {
@@ -25,16 +26,46 @@ export default function HomePage() {
             pfpUrl: context.user.pfpUrl,
           });
         }
+
+        // Check if we're in a Farcaster Mini App environment
+        const isInMiniApp = await sdk.isInMiniApp();
+        setCanAddMiniApp(isInMiniApp);
+        
       } catch (error) {
         console.error("Farcaster SDK initialization failed:", error);
-        // Optional: Handle fallback for non-Farcaster contexts
       } finally {
         setIsClient(true);
       }
     };
 
     initMiniapp();
-  }, []); // ✅ <-- This was probably missing
+  }, []);
+
+  // Function to handle adding the Mini App
+  const handleAddMiniApp = async () => {
+    try {
+      await sdk.actions.addMiniApp();
+      console.log("✅ Mini App added successfully!");
+      
+      // Optional: Show success feedback to user
+      alert("🎉 Cast-it-Fast has been added to your apps!");
+      
+    } catch (error) {
+      console.error("❌ Failed to add Mini App:", error);
+      
+      if (error.message === "RejectedByUser") {
+        console.log("User rejected adding the Mini App");
+        // Optional: Show gentle message
+        alert("No worries! You can add the app later if you change your mind.");
+      } else if (error.message === "InvalidDomainManifestJson") {
+        console.error("Invalid farcaster.json manifest");
+        alert("Sorry, there's a configuration issue. Please try again later.");
+      } else {
+        console.error("Unknown error:", error);
+        alert("Something went wrong. Please try again.");
+      }
+    }
+  };
 
   useEffect(() => {
     // Generate random positions on client side to avoid hydration mismatch
@@ -60,13 +91,13 @@ export default function HomePage() {
         📜 History
       </button> 
 
-  {/* Leaderboard Button - Top Left */}
-<button
-  onClick={() => router.push("/leaderboard")}
-  className="absolute top-4 left-4 bg-white/10 backdrop-blur-md px-4 py-2 rounded-lg text-sm font-bold text-white hover:bg-white/20 transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 z-50 touch-manipulation"
->
-  🏆 Leaderboard
-</button>
+      {/* Leaderboard Button - Top Left */}
+      <button
+        onClick={() => router.push("/leaderboard")}
+        className="absolute top-4 left-4 bg-white/10 backdrop-blur-md px-4 py-2 rounded-lg text-sm font-bold text-white hover:bg-white/20 transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 z-50 touch-manipulation"
+      >
+        🏆 Leaderboard
+      </button>
 
       {/* Floating background emojis */}
       <div className="absolute inset-0 overflow-hidden z-0">
@@ -97,9 +128,22 @@ export default function HomePage() {
         </p> 
 
         {/* Show user info if available */}
-        {currentUser?.fid && (  // ← Fix: Add optional chaining and truthy check for safe prerendering
+        {currentUser?.fid && (
           <div className="mb-4 text-sm text-white/80">
             Welcome, {currentUser.displayName || currentUser.username || 'Guest'}! 👋
+          </div>
+        )}
+
+        {/* Add Mini App suggestion (only show if in Farcaster) */}
+        {canAddMiniApp && (
+          <div className="mb-4 p-3 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20">
+            <p className="text-xs text-white/80 mb-2">💡 Add this game to your Farcaster apps for quick access!</p>
+            <button
+              onClick={handleAddMiniApp}
+              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg text-sm font-bold transform hover:scale-[1.02] active:scale-95 transition-transform duration-75 w-full"
+            >
+              ➕ Add to My Apps
+            </button>
           </div>
         )}
 
