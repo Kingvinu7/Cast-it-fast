@@ -15,7 +15,7 @@ export default function LeaderboardPage() {
   const [selectedEntries, setSelectedEntries] = useState(new Set());
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
-  const [canOpenProfiles, setCanOpenProfiles] = useState(false); // Track if we can open profiles
+  const [canViewProfiles, setCanViewProfiles] = useState(false); // Track if we can view profiles
   const [safeAreaInsets, setSafeAreaInsets] = useState({
     top: 0,
     bottom: 0,
@@ -56,9 +56,9 @@ export default function LeaderboardPage() {
           console.log("📱 Leaderboard safe area insets:", context.client.safeAreaInsets);
         }
 
-        // Check if we can open profiles (only available in Farcaster Mini App environment)
+        // Check if we can view profiles (only available in Farcaster Mini App environment)
         const isInMiniApp = await sdk.isInMiniApp();
-        setCanOpenProfiles(isInMiniApp);
+        setCanViewProfiles(isInMiniApp);
         console.log("👤 Profile viewing available:", isInMiniApp);
         
       } catch (error) {
@@ -69,9 +69,9 @@ export default function LeaderboardPage() {
     initializeFarcaster();
   }, []);
 
-  // Function to open a user's Farcaster profile
-  const openUserProfile = async (entry) => {
-    if (!canOpenProfiles) {
+  // Function to view a user's Farcaster profile using the correct SDK method
+  const viewUserProfile = async (entry) => {
+    if (!canViewProfiles) {
       console.log("❌ Profile viewing not available - not in Farcaster Mini App");
       return;
     }
@@ -88,8 +88,9 @@ export default function LeaderboardPage() {
       }
 
       if (fid && fid > 0) {
-        console.log(`👤 Opening profile for FID: ${fid}`);
-        await sdk.actions.openProfile({ fid: fid });
+        console.log(`👤 Viewing profile for FID: ${fid}`);
+        // Use the correct SDK method from the documentation
+        await sdk.actions.viewProfile({ fid: fid });
       } else {
         console.log("❌ No valid FID found for this user");
         // Fallback: show alert with user info
@@ -97,7 +98,7 @@ export default function LeaderboardPage() {
       }
       
     } catch (error) {
-      console.error("❌ Failed to open profile:", error);
+      console.error("❌ Failed to view profile:", error);
       
       if (error.message === "RejectedByUser") {
         console.log("User cancelled profile view");
@@ -106,7 +107,7 @@ export default function LeaderboardPage() {
         alert("Could not find this user's Farcaster profile");
       } else {
         console.log("Profile view error:", error.message);
-        alert("Unable to open profile at this time");
+        alert("Unable to view profile at this time");
       }
     }
   };
@@ -402,7 +403,7 @@ export default function LeaderboardPage() {
         <h1 className="text-2xl font-bold mb-6 text-center">🏆 Leaderboard</h1>
 
         {/* Profile viewing info */}
-        {canOpenProfiles && (
+        {canViewProfiles && (
           <div className="text-center text-xs text-blue-400 mb-4">
             👤 Tap player names to view their Farcaster profiles
           </div>
@@ -478,18 +479,18 @@ export default function LeaderboardPage() {
                       onClick={(e) => {
                         e.stopPropagation(); // Prevent triggering delete mode selection
                         if (!isDeleteMode) {
-                          openUserProfile(entry);
+                          viewUserProfile(entry);
                         }
                       }}
                       className={`text-sm font-semibold truncate max-w-[140px] text-left ${
-                        canOpenProfiles && !isDeleteMode 
+                        canViewProfiles && !isDeleteMode 
                           ? 'hover:text-blue-400 hover:underline cursor-pointer' 
                           : ''
                       }`}
                       disabled={isDeleteMode}
                     >
                       {entry.displayName || `Player ${i + 1}`}
-                      {canOpenProfiles && !isDeleteMode && (
+                      {canViewProfiles && !isDeleteMode && (
                         <span className="ml-1 text-xs opacity-60">👤</span>
                       )}
                     </button>
@@ -539,7 +540,7 @@ export default function LeaderboardPage() {
             Delete TX: {deleteHash.slice(0, 8)}...{deleteHash.slice(-6)}
           </div>
         )}
-          </div>
+      </div>
     </main>
   );
 }
