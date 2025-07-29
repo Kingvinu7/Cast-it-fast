@@ -133,10 +133,10 @@ export default function GamePage() {
   console.log("✅ Total Correct:", finalCorrect);
   
   router.push(`/result?score=${finalScore}&correct=${finalCorrect}`);
-        }
-      }
-
-    }, 100);
+         }
+       }
+     }, 100); 
+  }
         
   function handleReplay() {
     // Don't remove used questions - they should stay permanently used
